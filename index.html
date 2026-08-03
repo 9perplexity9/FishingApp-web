@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1420">
+<title>Рыбалка Беларусь — карта мест, погода, шпаргалки</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<style>
+@import "./leaflet.css";
+@import "./markercluster.css";
+@import "./markercluster-default.css";
+:root{
+  --bg:#0d1420; --panel:#131c2b; --panel2:#182236; --border:#22304a;
+  --text:#e6edf5; --muted:#8fa1b8; --faint:#7789a3;
+  --accent:#3ecf8e; --accent-dim:rgba(62,207,142,.12); --link:#5ab0ff;
+  --warn:#ffb454; --danger:#ff6b7a; --radius:10px;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%;overflow-x:hidden}
+body{overflow-x:hidden}
+body{background:var(--bg);color:var(--text);font:15px/1.5 var(--font);min-height:100vh;display:flex;flex-direction:column}
+main{flex:1 0 auto}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,select{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;outline:none}
+input,select,textarea{font-size:16px}
+input:focus,select:focus{border-color:var(--accent)}
+a{color:var(--link);text-decoration:none}
+a:hover{text-decoration:underline}
+.hide{display:none!important}
+
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:#1e3a5f;border-radius:6px;border:2px solid var(--bg)}
+::-webkit-scrollbar-thumb:hover{background:#2a4d7a}
+*{scrollbar-width:thin;scrollbar-color:#1e3a5f var(--bg)}
+
+.topbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(13,20,32,.96);z-index:1500;backdrop-filter:blur(6px)}
+.burger{display:none;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);cursor:pointer}
+.burger:hover{border-color:var(--accent)}
+.topbar.compact .burger{display:block}
+.topbar.compact .burger#burger{margin-left:auto}
+.topbar.compact .bf-burger{flex:0 0 auto;padding:11px 12px}
+.bf-panel{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;gap:8px;padding:12px;background:var(--panel);border-bottom:1px solid var(--border);z-index:1001;box-shadow:0 14px 30px rgba(0,0,0,.5)}
+.bf-panel.open{display:flex}
+.bf-panel .filters{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0}
+.bf-panel #list-filters{display:grid;grid-template-columns:1fr 1fr;gap:8px;border:none;background:none;padding:0;margin:0}
+.bf-panel #list-filters > span{display:none}
+.bf-panel #list-filters .type-wrap{order:1;display:block;width:100%}
+.bf-panel #list-filters select{order:1;width:100%;min-width:0;max-width:none;min-height:44px}
+.bf-panel #list-filters .sel{order:1;width:100%;min-width:0;max-width:none;min-height:44px;text-align:center;text-align-last:center;font-size:13px}
+.bf-panel #list-filters .opt{order:2;display:flex;align-items:center;gap:8px;padding:6px 4px;white-space:nowrap}
+.bf-panel .filters .type-wrap{display:block;width:100%}
+.bf-panel .filters .type-wrap .sel,.bf-panel .filters select,.bf-panel .filters .search{width:100%;min-width:0;max-width:none;min-height:44px}
+.bf-panel .filters select{text-align:center;text-align-last:center}
+.bf-panel .filters .search{margin-left:0}
+.bf-panel .type-panel{position:absolute;top:calc(100% + 4px);left:0;right:0;width:100%;max-height:min(50vh,320px);overflow-y:auto;box-shadow:0 14px 30px rgba(0,0,0,.5);margin:0;z-index:1200}
+.bf-panel .opt{display:flex;align-items:center;gap:8px;padding:6px 4px;white-space:nowrap}
+.topbar.compact .origin{flex:1 1 100%;max-width:none;min-width:0;order:3;position:static;border-top:1px solid var(--border);padding-top:10px;margin-top:6px}
+.topbar.compact .tabs{position:absolute;top:100%;left:0;right:0;flex-direction:column;gap:2px;display:none;background:var(--panel);border-bottom:1px solid var(--border);padding:8px;z-index:1001;box-shadow:0 14px 30px rgba(0,0,0,.5);max-height:calc(100vh - 100px);overflow-y:auto}
+.topbar.compact .tabs.open{display:flex}
+.topbar.compact .tabs button{padding:11px 12px;text-align:left;border-radius:8px}
+.topbar.compact #burger-filters{display:flex;flex-direction:column;gap:10px;padding:12px 6px;border-top:1px solid var(--border)}
+.topbar.compact #burger-filters .sel{width:100%;min-height:44px}
+.topbar.compact #burger-filters .opt{display:flex;align-items:center;gap:8px;padding:6px 4px;white-space:nowrap}
+.topbar.compact #burger-filters .search{width:100%;max-width:none;min-height:44px}
+.stats-row .stats{display:none}
+.brand{font-weight:800;letter-spacing:.06em;font-size:17px;white-space:nowrap}
+.brand b{color:var(--accent)}
+.origin{display:flex;gap:6px;flex:1;min-width:230px;max-width:460px;position:relative}
+.origin input{flex:1;min-width:0}
+.origin button{padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);white-space:nowrap}
+.origin button:hover{border-color:var(--accent)}
+.loc-map{position:absolute;right:12px;bottom:36px;z-index:900;width:44px;height:44px;display:grid;place-items:center;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.loc-map:hover{border-color:var(--accent)}
+#origin-suggest{position:absolute;top:100%;left:0;right:0;margin-top:4px;background:var(--panel);border:1px solid var(--border);border-radius:8px;z-index:2000;max-height:264px;overflow-y:auto;box-shadow:0 10px 28px rgba(0,0,0,.4)}
+#origin-suggest .sug{padding:8px 10px;cursor:pointer;color:var(--text);font-size:13px;border-bottom:1px solid rgba(34,48,74,.45)}
+#origin-suggest .sug:last-child{border-bottom:none}
+#origin-suggest .sug:hover,#origin-suggest .sug.on{background:var(--panel2);color:var(--accent)}
+
+.tabs{display:flex;gap:4px;padding:0 4px;overflow-x:auto;-webkit-overflow-scrolling:touch;flex:1 1 auto;min-width:0;justify-content:flex-end;background:transparent}
+.tabs button{padding:8px 14px;border-radius:8px;color:var(--muted);white-space:nowrap;font-weight:600;font-size:14px}
+.tabs button.on{color:var(--accent);background:var(--accent-dim)}
+
+.view{padding:14px 16px 90px;max-width:1200px;margin:0 auto}
+
+.filters{display:flex;gap:8px 10px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:10px;padding:0 16px;row-gap:8px}
+@media(max-width:520px){.search{flex:1 1 100%;max-width:none}}
+.sel{font-size:13px;padding:5px 10px;min-height:44px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);cursor:pointer}
+.filters select,.sortbar select,.sel{font-size:13px;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);cursor:pointer;appearance:none;-webkit-appearance:none}
+.filters select:hover,.sortbar select:hover,.sel:hover{border-color:var(--accent)}
+.type-wrap{position:relative;display:inline-block}
+.type-panel{position:absolute;top:100%;left:0;margin-top:4px;z-index:1100;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 10px;min-width:200px;max-height:min(60vh,420px);overflow-y:auto;box-shadow:0 10px 28px rgba(0,0,0,.45);display:flex;flex-direction:column;gap:2px}
+.type-panel .opt{display:flex;align-items:center;gap:7px;padding:5px 4px;border-radius:6px;cursor:pointer;white-space:nowrap;font-size:13px}
+.type-panel .opt:hover{background:var(--panel2)}
+.type-panel input{accent-color:var(--accent)}
+.opt{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);padding:5px 2px;cursor:pointer;white-space:nowrap}
+.opt input{accent-color:var(--accent)}
+.search{flex:1;min-width:160px;max-width:280px;margin-left:auto;text-align:center}
+.search::placeholder{text-align:center}
+
+#view-map{max-width:none;width:100%;margin:0;padding:0 16px 14px;flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+#view-map .filters:empty{display:none}
+#view-map .filters{max-width:none;width:100%;margin:0;padding:12px 0 10px}
+#view-map .stats-row{max-width:none;margin:0;padding:10px 0 0;flex-wrap:nowrap}
+#mapwrap{position:relative;overflow:hidden;flex:1 1 auto;min-height:320px;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+#map{position:absolute;inset:0;border:none;border-radius:0;z-index:1;background:#101b2c}
+.map-layers{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--muted)}
+.map-layers .opt{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.stats-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px;max-width:none;margin:0;padding:8px 16px 0}
+main{flex:1 0 auto;display:flex;flex-direction:column;min-width:0}
+.leaflet-container{background:#101b2c}
+.leaflet-popup-content-wrapper{position:relative}
+.popup-fav-star{position:absolute;top:0;right:28px;width:34px;height:34px;border:none;background:transparent;color:var(--warn);font-size:20px;line-height:1;cursor:pointer;padding:0;z-index:2}
+.popup-fav-star:hover{transform:scale(1.15)}
+.leaflet-control-attribution{background:rgba(13,20,32,.7)!important;color:var(--faint)!important;font-size:10px}
+.leaflet-control-attribution a{color:var(--muted)!important}
+.legend-wrap{position:absolute;top:10px;right:10px;z-index:900;font-size:12.5px}
+.legend-toggle{padding:6px 10px;border-radius:8px;background:rgba(19,28,43,.92);border:1px solid var(--border);color:var(--muted);font-weight:600}
+.legend-body{position:absolute;top:100%;right:0;margin-top:6px;padding:10px 12px;border-radius:8px;background:rgba(19,28,43,.94);border:1px solid var(--border);color:var(--muted);line-height:1.7;width:220px;box-shadow:0 10px 28px rgba(0,0,0,.45)}
+.legend-body .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+.dot.green{background:var(--accent)} .dot.grey{background:#5f738c} .dot.paid{background:var(--warn)}
+.stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;color:var(--muted);font-size:13px}
+.stats-row .stats{margin-top:0;flex-wrap:nowrap;align-items:center}
+.stats b{color:var(--text)}
+.legend-body .row{display:flex;align-items:center;gap:4px}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:10px;margin-top:10px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;content-visibility:auto;contain-intrinsic-size:auto 150px;display:flex;flex-direction:column;gap:8px}
+.card:hover{border-color:var(--accent)}
+.card-top{display:flex;align-items:flex-start;gap:8px}
+.rank{color:var(--faint);font-weight:800;font-size:13px;min-width:26px;padding-top:2px}
+.card h3{font-size:15px;line-height:1.3;flex:1}
+.fav{font-size:18px;color:var(--faint);line-height:1;padding:2px;width:34px;height:34px}
+.fav.on{color:var(--warn)}
+.card-meta{color:var(--muted);font-size:12.5px;display:flex;gap:8px;flex-wrap:wrap}
+.card-tags{display:flex;gap:5px;flex-wrap:wrap}
+.tag{font-size:11.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);color:var(--muted)}
+.tag.hot{color:var(--accent);border-color:var(--accent)}
+.card-note{color:var(--faint);font-size:12.5px}
+.card-foot{display:flex;align-items:center;gap:8px;margin-top:auto;flex-wrap:wrap}
+.badge{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px}
+.badge.free{color:var(--accent);background:var(--accent-dim)}
+.badge.paid{color:var(--warn);background:rgba(255,180,84,.12)}
+.badge.warn{color:#0d1420;background:var(--warn)}
+.rules-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px}
+.rules-card h3{font-size:14px;color:var(--accent);margin-bottom:8px}
+.rule-row{padding:8px 10px;border-left:3px solid var(--border);background:var(--panel2);border-radius:0 8px 8px 0;margin-bottom:6px;font-size:13px;color:var(--text)}
+.rule-row.on{border-left-color:var(--warn)}
+.rule-row .muted{font-size:12px}
+.score{margin-left:auto;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums}
+.score small{color:var(--faint);font-weight:600}
+.card-foot .go,.card-foot .go-map,.card-foot .go-tel,.card-foot .go-site{padding:10px 14px;min-height:44px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;color:var(--muted)}
+.card-foot .go:hover,.card-foot .go-map:hover,.card-foot .go-tel:hover,.card-foot .go-site:hover{border-color:var(--accent);color:var(--accent)}
+.sortbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:13px;padding:10px 2px}
+#list-filters{margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel);gap:12px}
+#view-list #list-filters .type-wrap, #view-list #list-filters select, #view-list #list-filters > span{order:1}
+#view-list #list-filters .opt{order:2}
+#view-list #list-filters::after{content:'';order:1;flex-basis:100%;height:0}
+.sortbar button{padding:5px 11px;border-radius:8px;border:1px solid var(--border);font-size:12.5px;color:var(--muted)}
+.sortbar button.on{color:var(--accent);border-color:var(--accent);background:var(--accent-dim)}
+.sortbar button:disabled{opacity:.45;cursor:not-allowed}
+.sorts{display:flex;gap:6px;flex-wrap:wrap}
+
+.methods{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.method{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:8px}
+.method:hover{border-color:var(--accent)}
+.method h3{font-size:15.5px}
+.method p{color:var(--muted);font-size:13px;flex:1}
+.method .go{align-self:flex-start;padding:6px 12px;border-radius:8px;background:var(--accent-dim);color:var(--accent);font-weight:700;font-size:13px}
+.detail{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:12px}
+.detail h2{font-size:17px;margin-bottom:10px;color:var(--accent)}
+.detail .blk{margin-top:10px}
+.detail .blk h4{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);margin-bottom:5px}
+.detail .blk p,.detail .blk li{color:var(--muted);font-size:13.5px}
+.detail ul{margin-left:18px}
+.chips-line{display:flex;gap:6px;flex-wrap:wrap}
+.bait-chip{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);color:var(--muted)}
+.bait-chip.hot{color:var(--accent);border-color:var(--accent);background:var(--accent-dim)}
+.bait-chip.plant{color:#b9a3ff;border-color:#6f5bb5}
+.bait-chip.animal{color:#ffb08a;border-color:#b5734a}
+
+.fishes{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:10px}
+.fish{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:8px}
+.fish h3{font-size:15.5px;display:flex;align-items:center;gap:8px}
+.fish .type{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:.05em}
+.fish .type.pred{color:var(--danger);background:rgba(255,107,122,.12)}
+.fish .type.peace{color:var(--link);background:rgba(90,176,255,.12)}
+.fish .fmeta{color:var(--muted);font-size:12.5px;display:flex;gap:6px;flex-wrap:wrap}
+.fish .fmeta b{color:var(--text);font-weight:600}
+table.seasons{width:100%;border-collapse:collapse;font-size:12px;margin-top:2px}
+table.seasons th{color:var(--faint);font-weight:600;text-align:left;padding:5px 8px;border-bottom:1px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+table.seasons td{padding:6px 8px;border-bottom:1px solid rgba(34,48,74,.55);color:var(--muted);vertical-align:top}
+.fish-notes{color:var(--faint);font-size:12.5px}
+
+.weather-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;min-width:0}
+.weather-head .where{color:var(--muted);font-size:13px;min-width:0}
+#weather-status{min-width:0}
+.weather-head .where b{color:var(--text)}
+.weather-head button{padding:6px 12px;border-radius:8px;border:1px solid var(--border);color:var(--muted);font-size:13px}
+.calendar{display:flex;overflow-x:auto;gap:8px;padding-bottom:6px;min-width:0;max-width:100%}
+.day{flex:0 0 132px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:10px;text-align:center;cursor:pointer}
+.day:hover{border-color:var(--accent)}
+.day.on{border-color:var(--accent);background:var(--accent-dim)}
+.day .dow{font-size:12px;color:var(--muted);font-weight:600}
+.day .dnum{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.day .dmon{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+.day .wico{font-size:20px;line-height:1.4}
+.day .tmax{color:var(--warn);font-weight:700;font-size:13px}
+.day .tmin{color:var(--link);font-size:12px}
+.day .score-badge{display:inline-block;margin-top:6px;font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;border:1px solid var(--border);font-variant-numeric:tabular-nums}
+.score-badge.good{color:var(--accent);border-color:var(--accent);background:var(--accent-dim)}
+.score-badge.ok{color:var(--warn);border-color:var(--warn)}
+.score-badge.bad{color:var(--danger);border-color:var(--danger)}
+.day-detail{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-top:12px;min-width:0;overflow-x:hidden}
+.day-detail h2{font-size:16px;margin-bottom:6px}
+.day-detail .big-score{font-size:34px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums}
+.day-detail .factors{margin-top:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:8px}
+.factor{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12.5px}
+.factor .fl{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.factor .fv{font-weight:700;margin-top:2px}
+.factor .fv.good{color:var(--accent)} .factor .fv.mid{color:var(--warn)} .factor .fv.bad{color:var(--danger)}
+.recs{margin-top:12px}
+.recs h4{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);margin-bottom:8px}
+.rec{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-left:3px solid var(--accent);background:var(--panel2);border-radius:0 8px 8px 0;color:var(--muted);font-size:13px;margin-bottom:6px}
+.rec.warn{border-left-color:var(--warn)}
+.rec.bad{border-left-color:var(--danger)}
+#view-weather{min-width:0;overflow-x:hidden;width:100%}
+.hourly{margin-top:14px;overflow:hidden;min-width:0}
+.hour-chart{margin-top:14px;min-width:0}
+.chart-filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.cf-btn{padding:5px 12px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--muted);font-size:12.5px;cursor:pointer}
+.cf-btn.on{color:var(--accent);border-color:var(--accent);background:var(--accent-dim)}
+.chart-body{border:1px solid var(--border);border-radius:10px;padding:10px 8px 4px;background:var(--panel);width:100%;min-width:0;box-sizing:border-box}
+.chart-body svg{width:100%!important;height:auto!important;display:block}
+.chart-note{color:var(--muted);font-size:11px;padding:6px 2px 2px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.chart-note .lg{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.chart-note .lg.bite{background:var(--accent)}
+.chart-note .lg.temp{background:var(--warn)}
+.chart-note .lg.precip{background:#5ab0ff}
+.chart-note .lg.wind{background:#8fa1b8}
+.hourly h4{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);margin-bottom:8px}
+.hstrip{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;min-width:0;max-width:100%}
+.hcell{flex:0 0 56px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 4px;text-align:center;font-size:11px;color:var(--muted)}
+.hcell .hct{font-weight:700;color:var(--faint);font-size:10.5px;font-variant-numeric:tabular-nums}
+.hcell .hci{font-size:17px;line-height:1.3}
+.hcell .hctmp{color:var(--warn);font-weight:700;font-variant-numeric:tabular-nums}
+.hcell .hcpr{color:var(--link);font-variant-numeric:tabular-nums}
+.hcell .hcw{color:var(--faint);font-variant-numeric:tabular-nums}
+
+footer{border-top:1px solid var(--border);margin-top:auto;padding:16px;color:var(--faint);font-size:12.5px;text-align:center;line-height:1.8}
+footer a{color:var(--muted)}
+.muted{color:var(--faint);font-size:13px}
+.empty{color:var(--muted);text-align:center;padding:30px 10px;font-size:14px}
+</style>
+</head>
+<body>
+
+<header class="topbar" id="topbar">
+  <div class="brand" id="brand">РЫБАЛКА <b>БЕЛАРУСЬ</b></div>
+  <form class="origin" id="origin-form" autocomplete="off">
+    <input id="origin-input" type="text" placeholder="Введите местоположение" aria-label="Введите местоположение">
+    <div id="origin-suggest" class="hide"></div>
+  </form>
+  <button class="burger" id="burger" type="button" aria-label="Меню" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+  </button>
+  <button class="burger bf-burger" id="burger-filters-btn" type="button" aria-label="Фильтры" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+  </button>
+  <div class="bf-panel" id="bf-panel"></div>
+  <nav class="tabs" id="tabs">
+    <button data-view="map" class="on">Карта</button>
+    <button data-view="list">Рейтинг мест</button>
+    <button data-view="tackle">Способы ловли</button>
+    <button data-view="fish">Шпаргалки</button>
+    <button data-view="rules">Правила</button>
+    <button data-view="weather">Погода и календарь</button>
+  </nav>
+</header>
+
+<main>
+  <section id="view-map" class="view">
+    <div class="filters" id="map-filters">
+      <div class="type-wrap" id="region-wrap">
+        <button class="sel" id="region-btn" type="button">Области: все ▾</button>
+        <div class="type-panel hide" id="region-panel">
+          <label class="opt"><input type="checkbox" id="region-all" value="" checked>Все области</label>
+        </div>
+      </div>
+      <div class="type-wrap" id="type-wrap">
+        <button class="sel" id="type-btn" type="button" aria-haspopup="listbox">Водоём: любой ▾</button>
+        <div class="type-panel hide" id="type-panel">
+          <label class="opt"><input type="checkbox" id="ty-all" value="" checked>Любой водоём</label>
+          <label class="opt"><input type="checkbox" id="ty-озеро" value="озеро">Озеро</label>
+          <label class="opt"><input type="checkbox" id="ty-река" value="река">Река</label>
+          <label class="opt"><input type="checkbox" id="ty-вдхр" value="вдхр">Вдхр</label>
+          <label class="opt"><input type="checkbox" id="ty-канал" value="канал">Канал</label>
+          <label class="opt"><input type="checkbox" id="ty-пруд" value="пруд">Пруд</label>
+        </div>
+      </div>
+      <div class="type-wrap" id="fish-wrap">
+        <button class="sel" id="fish-btn" type="button" aria-haspopup="listbox">Рыба: любая ▾</button>
+        <div class="type-panel hide" id="fish-panel">
+          <label class="opt"><input type="checkbox" id="fish-all" value="" checked>Любая рыба</label>
+        </div>
+      </div>
+      <div class="type-wrap" id="radius-wrap">
+        <button class="sel" id="radius-btn" type="button">Радиус: выкл ▾</button>
+        <div class="type-panel hide" id="radius-panel">
+          <label class="opt"><input type="radio" name="radius" value="0" checked>Выкл</label>
+          <label class="opt"><input type="radio" name="radius" value="30">30 км</label>
+          <label class="opt"><input type="radio" name="radius" value="50">50 км</label>
+          <label class="opt"><input type="radio" name="radius" value="80">80 км</label>
+        </div>
+      </div>
+      <div class="type-wrap" id="mapmin-wrap">
+        <button class="sel" id="mapmin-btn" type="button">Рейтинг: любой ▾</button>
+        <div class="type-panel hide" id="mapmin-panel">
+          <label class="opt"><input type="radio" name="mapmin" value="0" checked>Любой</label>
+          <label class="opt"><input type="radio" name="mapmin" value="40">≥ 40</label>
+          <label class="opt"><input type="radio" name="mapmin" value="50">≥ 50</label>
+          <label class="opt"><input type="radio" name="mapmin" value="60">≥ 60</label>
+          <label class="opt"><input type="radio" name="mapmin" value="70">≥ 70</label>
+          <label class="opt"><input type="radio" name="mapmin" value="80">≥ 80</label>
+          <label class="opt"><input type="radio" name="mapmin" value="90">≥ 90</label>
+        </div>
+      </div>
+      <input class="search" id="search" type="search" placeholder="Поиск места или рыбы…" aria-label="Поиск">
+    </div>
+    <div id="mapwrap">
+      <div id="map"></div>
+      <button type="button" class="loc-map" id="gps-btn" title="Моё местоположение" aria-label="Определить местоположение">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+      </button>
+      <div class="legend-wrap" id="legend-wrap">
+        <button class="legend-toggle" id="legend-toggle">Легенда ▴</button>
+        <div class="legend-body hide" id="legend-body">
+          <div class="row"><span class="dot green"></span>место для рыбалки</div>
+          <div class="row"><span class="dot paid"></span>платная рыбалка</div>
+          <div class="row"><span class="dot grey"></span>кластер — число мест</div>
+          <div class="row"><span style="color:var(--accent)">◌</span> круг — радиус от старта</div>
+          <div class="row"><span style="color:var(--warn)">★</span> избранное</div>
+        </div>
+      </div>
+    </div>
+    <div class="stats-row">
+      <div class="stats" id="stats"></div>
+      <div class="map-layers">
+        <label class="opt"><input type="checkbox" id="lay-free" checked>Бесплатные</label>
+        <label class="opt"><input type="checkbox" id="lay-paid" checked>Платные</label>
+        <label class="opt"><input type="checkbox" id="lay-fav">Избранное</label>
+        <label class="opt"><input type="checkbox" id="fm-layer" checked>Отчёты fishermap</label>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-list" class="view hide">
+    <div class="sortbar">
+      <span>Сортировка:</span>
+      <div class="sorts" id="sorts">
+        <button data-sort="score" class="on">рейтинг</button>
+        <button data-sort="dist">расстояние</button>
+        <button data-sort="name">название</button>
+      </div>
+      <span style="margin-left:auto" id="list-count"></span>
+    </div>
+    <div class="sortbar" id="list-filters">
+      <span>Фильтры:</span>
+      <label class="opt"><input type="checkbox" id="lf-fav">только избранные</label>
+      <label class="opt"><input type="checkbox" id="lf-free">только бесплатные</label>
+      <label class="opt"><input type="checkbox" id="lf-paid">только платные</label>
+      <label class="opt"><input type="checkbox" id="lf-dist" checked>учитывать расстояние</label>
+      <select class="sel" id="lf-min" aria-label="Минимальный рейтинг">
+        <option value="0">Рейтинг: любой</option>
+        <option value="50">Рейтинг ≥ 50</option>
+        <option value="70">Рейтинг ≥ 70</option>
+        <option value="85">Рейтинг ≥ 85</option>
+      </select>
+      <div class="type-wrap" id="lf-type-wrap">
+        <button class="sel" id="lf-type-btn" type="button">Водоём: любой ▾</button>
+        <div class="type-panel hide" id="lf-type-panel">
+          <label class="opt"><input type="checkbox" id="lft-all" value="" checked>Любой водоём</label>
+          <label class="opt"><input type="checkbox" value="озеро">Озеро</label>
+          <label class="opt"><input type="checkbox" value="река">Река</label>
+          <label class="opt"><input type="checkbox" value="вдхр">Вдхр</label>
+          <label class="opt"><input type="checkbox" value="канал">Канал</label>
+          <label class="opt"><input type="checkbox" value="пруд">Пруд</label>
+        </div>
+      </div>
+      <div class="type-wrap" id="lf-fish-wrap">
+        <button class="sel" id="lf-fish-btn" type="button">Рыба: любая ▾</button>
+        <div class="type-panel hide" id="lf-fish-panel">
+          <label class="opt"><input type="checkbox" id="lff-all" value="" checked>Любая рыба</label>
+        </div>
+      </div>
+      <div class="type-wrap" id="lf-reg-wrap">
+        <button class="sel" id="lf-reg-btn" type="button">Области: все ▾</button>
+        <div class="type-panel hide" id="lf-reg-panel">
+          <label class="opt"><input type="checkbox" id="lf-reg-all" value="" checked>Все области</label>
+        </div>
+      </div>
+    </div>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section id="view-tackle" class="view hide">
+    <p class="muted" style="margin-bottom:10px">13 способов ловли — от поплавочки и донки до карпфишинга и зимнего блеснения. Нажмите на способ, чтобы развернуть подробности.</p>
+    <div class="methods" id="methods"></div>
+    <div class="detail hide" id="method-detail"></div>
+  </section>
+
+  <section id="view-fish" class="view hide">
+    <div class="fishes" id="fishes"></div>
+  </section>
+
+  <section id="view-weather" class="view hide">
+    <div id="rules-day-banner" class="hide" style="background:rgba(255,180,84,.1);border:1px solid var(--warn);border-radius:var(--radius);padding:10px 14px;font-size:13.5px;margin-bottom:12px;color:var(--text)"></div>
+    <div class="weather-head">
+      <div class="where" id="weather-where"></div>
+      <button id="weather-refresh">Обновить</button>
+    </div>
+    <div id="weather-status" class="muted"></div>
+    <div class="calendar" id="calendar"></div>
+    <div class="day-detail hide" id="day-detail"></div>
+  </section>
+
+  <section id="view-rules" class="view hide">
+    <div id="rules-box"></div>
+  </section>
+</main>
+
+<footer>
+  <div id="foot-version">Рыбалка Беларусь · места и отчёты обновляются · 6 областей</div>
+  <div>
+    Данные: собственные наблюдения и открытые источники —
+    <a href="https://by.fishermap.org" target="_blank" rel="noopener">fishermap.org</a> ·
+    <a href="https://rybalka.by" target="_blank" rel="noopener">rybalka.by</a> ·
+    <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> ·
+    <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>
+  </div>
+  <div>Сезонные запреты и нормы вылова — <a href="https://belryba.by" target="_blank" rel="noopener">belryba.by</a> · Непроверенные точки помечаются заметкой.</div>
+</footer>
+
+<script src="./leaflet.js"></script>
+<script src="./markercluster.js"></script>
+<script src="./data.js"></script>
+<script src="./data_guide.js"></script>
+<script src="./data_fisher.js"></script>
+<script src="./data_rules.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
