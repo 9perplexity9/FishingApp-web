@@ -4,6 +4,8 @@
   var D = window.RYB_DATA;
   var G = window.RYB_GUIDE;
   var RULES = window.RYB_RULES || null;
+  var DP = window.RYB_DEPTHS || null;
+  var UH = window.UHAMAP || null;
   var REGIONS = D.regions;
   var ALL_FISH = [];
   var seen = {};
@@ -20,7 +22,7 @@
     fishes: [],
     radius: 0,
     mapMin: 0,
-    layers: { paid: true, free: true, fav: false, fm: true },
+    layers: { paid: true, free: true, fav: false, fm: true, depth: false },
     q: '',
     list: { fav: false, free: false, paid: false, min: 0, types: [], fishes: [], regions: [] },
     useDist: true,
@@ -38,6 +40,9 @@
 
   var els = {};
   var map = null, clusterFree = null, clusterPaid = null, markers = {}, radiusLayer = null, dayBannerShown = false;
+  var depthLayer = null, depthZoomOk = false;
+  var uhaCluster = null, uhaDepthLayer = null, uhaZoomOk = false;
+  var genCluster = null, genMarkers = {};
   var fisherCluster = null, fmItems = [], fmVisible = {};
   var FISHER = (window.RYB_FISHER && window.RYB_FISHER.spots) ? window.RYB_FISHER.spots : [];
   var origTimer = null, origItems = [];
@@ -102,11 +107,12 @@
       if (Array.isArray(s.chartKeys) && s.chartKeys.length) state.chartKeys = s.chartKeys.filter(function (k) { return ['bite', 'temp', 'precip', 'wind'].indexOf(k) >= 0; });
       state.legendOpen = !!s.legendOpen;
       if (s.layers) {
-        var lay = { paid: true, free: true, fav: false, fm: true };
+        var lay = { paid: true, free: true, fav: false, fm: true, depth: false };
         state.layers.paid = typeof s.layers.paid === 'boolean' ? s.layers.paid : lay.paid;
         state.layers.free = typeof s.layers.free === 'boolean' ? s.layers.free : lay.free;
         state.layers.fav = typeof s.layers.fav === 'boolean' ? s.layers.fav : lay.fav;
         state.layers.fm = typeof s.layers.fm === 'boolean' ? s.layers.fm : lay.fm;
+        state.layers.depth = typeof s.layers.depth === 'boolean' ? s.layers.depth : lay.depth;
       }
       if (typeof s.weatherAt === 'number' && s.weatherAt > 0) {
         state.weatherAt = s.weatherAt;
@@ -289,8 +295,13 @@
     }).addTo(map);
     clusterFree = makeCluster('#3ecf8e');
     clusterPaid = makeCluster('#ffb454');
+    uhaCluster = makeCluster('#4fc3f7');
+    genCluster = makeCluster('#b46bf0');
     map.addLayer(clusterFree);
     map.addLayer(clusterPaid);
+    depthLayer = L.layerGroup();
+    uhaDepthLayer = L.layerGroup();
+    map.on('zoomend', function () { refreshDepthLayer(); refreshUhaLayer(); });
     var mw = document.getElementById('mapwrap');
     if (mw && window.ResizeObserver) {
       new ResizeObserver(function () {
@@ -442,6 +453,153 @@
     fmVisible = keep;
   }
 
+  function fmtDepth(v) {
+    if (v == null) return null;
+    return String(Math.round(Number(v) * 100) / 100);
+  }
+
+  function depthInfo(s) {
+    if (!DP || !s) return null;
+    var e = DP[s.name];
+    if (!e) return null;
+    var parts = [];
+    if (e.river) {
+      var ln = fmtDepth(e.len), bn = fmtDepth(e.basin), wd = fmtDepth(e.width), md = fmtDepth(e.maxD);
+      if (ln != null) parts.push('длина ' + ln + ' км');
+      if (bn != null) parts.push('бассейн ' + bn + ' км²');
+      if (wd != null) parts.push('ширина ' + wd + ' м');
+      if (md != null) parts.push('глубина до ' + md + ' м');
+      if (!parts.length) return null;
+      return 'Река: ' + parts.join(' · ') + (e.features ? ' (оценка)' : '');
+    }
+    var mx = fmtDepth(e.maxD), av = fmtDepth(e.avgD), ar = fmtDepth(e.area);
+    if (mx != null) parts.push('макс ' + mx + ' м');
+    if (av != null) parts.push('средн ' + av + ' м');
+    if (ar != null) parts.push('пл. ' + ar + ' км²');
+    if (!parts.length) return null;
+    var out = 'Глубина: ' + parts.join(' · ');
+    if (e.src === 'uhamap') out += ' (промер эхолотом)';
+    else if (e.features) out += ' (оценка по справочным данным)';
+    return out;
+  }
+
+  function depthPolys() {
+    if (!DP) return;
+    D.spots.forEach(function (s) {
+      if (!isVisible(s) || !isMapVisible(s)) return;
+      var e = DP[s.name];
+      if (!e || !e.features) return;
+      e.features.forEach(function (f) {
+        f.r.forEach(function (poly) {
+          poly.forEach(function (ring) {
+            if (!ring || ring.length < 3) return;
+            var latlngs = ring.map(function (p) { return [p[1], p[0]]; });
+            depthLayer.addLayer(L.polygon(latlngs, {
+              color: f.c, fillColor: f.c, fillOpacity: 0.35, weight: 1.5, interactive: false
+            }));
+          });
+        });
+      });
+    });
+  }
+
+  function refreshDepthLayer(force) {
+    if (!depthLayer || !map) return;
+    var on = !!state.layers.depth;
+    var ok = on && map.getZoom() >= 12;
+    if (ok && (force || ok !== depthZoomOk)) {
+      depthLayer.clearLayers();
+      depthPolys();
+    } else if (!ok && ok !== depthZoomOk) {
+      depthLayer.clearLayers();
+    }
+    depthZoomOk = ok;
+    if (on && !map.hasLayer(depthLayer)) map.addLayer(depthLayer);
+    else if (!on && map.hasLayer(depthLayer)) map.removeLayer(depthLayer);
+    if (genCluster) {
+      if (on && !map.hasLayer(genCluster)) map.addLayer(genCluster);
+      else if (!on && map.hasLayer(genCluster)) map.removeLayer(genCluster);
+    }
+  }
+
+  function buildUhaMarkers() {
+    if (!UH) return;
+    Object.keys(UH).forEach(function (k) {
+      var v = UH[k];
+      var m = L.marker([v.lat, v.lon], {
+        icon: L.divIcon({
+          html: '<div style="width:12px;height:12px;border-radius:50%;background:#4fc3f7;border:1px solid #0d1420"></div>',
+          className: '', iconSize: [15, 15], iconAnchor: [8, 8]
+        })
+      });
+      m.bindPopup('<b>' + esc(k) + '</b><br>Макс. глубина: ' + fmtDepth(v.maxD) + ' м (промер эхолотом)');
+      uhaCluster.addLayer(m);
+    });
+  }
+
+  function buildGenMarkers() {
+    if (!DP) return;
+    var maxW = Math.min(320, (window.innerWidth || 320) - 48);
+    D.spots.forEach(function (s) {
+      var e = DP[s.name];
+      if (!e || !e.features || e.src === 'uhamap') return;
+      var m = L.marker([s.lat, s.lon], {
+        icon: L.divIcon({
+          html: '<div style="width:15px;height:15px;border-radius:50%;background:#b46bf0;border:2px solid #fff;box-shadow:0 0 4px rgba(0,0,0,.8)"></div>',
+          className: '', iconSize: [15, 15], iconAnchor: [8, 8]
+        }),
+        zIndexOffset: 500
+      });
+      m.bindPopup('', { closeButton: true, maxWidth: maxW });
+      m.on('popupopen', function () {
+        m.setPopupContent(popupHtml(m._spot));
+        bindPopupEvents(m, m._spot);
+      });
+      m._spot = s;
+      genMarkers[favKey(s)] = m;
+      genCluster.addLayer(m);
+    });
+  }
+
+  function uhaPolys() {
+    if (!UH || !uhaDepthLayer) return;
+    Object.keys(UH).forEach(function (k) {
+      var v = UH[k];
+      if (!v.features) return;
+      v.features.forEach(function (f) {
+        f.r.forEach(function (poly) {
+          poly.forEach(function (ring) {
+            if (!ring || ring.length < 3) return;
+            var latlngs = ring.map(function (p) { return [p[1], p[0]]; });
+            uhaDepthLayer.addLayer(L.polygon(latlngs, {
+              color: f.c, fillColor: f.c, fillOpacity: 0.35, weight: 1.5, interactive: false
+            }));
+          });
+        });
+      });
+    });
+  }
+
+  function refreshUhaLayer(force) {
+    if (!UH || !map) return;
+    var on = !!state.layers.depth;
+    if (uhaCluster) {
+      if (on && !map.hasLayer(uhaCluster)) map.addLayer(uhaCluster);
+      else if (!on && map.hasLayer(uhaCluster)) map.removeLayer(uhaCluster);
+    }
+    if (!uhaDepthLayer) return;
+    var ok = on && map.getZoom() >= 12;
+    if (ok && (force || ok !== uhaZoomOk)) {
+      uhaDepthLayer.clearLayers();
+      uhaPolys();
+    } else if (!ok && ok !== uhaZoomOk) {
+      uhaDepthLayer.clearLayers();
+    }
+    uhaZoomOk = ok;
+    if (on && !map.hasLayer(uhaDepthLayer)) map.addLayer(uhaDepthLayer);
+    else if (!on && map.hasLayer(uhaDepthLayer)) map.removeLayer(uhaDepthLayer);
+  }
+
   function popupHtml(s) {
     var o = state.origin;
     var d = o ? ' · ' + fmtDist(s._d) + ' от ' + esc(o.name) : '';
@@ -452,8 +610,10 @@
     var fm = 'https://by.fishermap.org/fish-map/';
     var fav = state.favs.has(favKey(s));
     var bansNow = RULES ? activeBans(s.r, new Date()) : [];
+    var di = depthInfo(s);
     return '<b>' + esc(s.name) + '</b>' + d + '<br>' +
       '<span style="color:#8fa1b8">' + s.fish.map(esc).join(' · ') + '</span>' +
+      (di ? '<br>' + di : '') +
       (s.paid ? '<br><span style="color:#ffb454">платная рыбалка · ' + esc(s.paid_price || 'уточняйте') + '</span>' +
         (s.site ? ' <a href="' + esc(s.site) + '" target="_blank" rel="noopener">Сайт</a>' : '') : '') +
       (!s.paid && s.note ? '<br><span style="color:#5b6c84">' + esc(s.note) + '</span>' : '') +
@@ -527,6 +687,8 @@
     clusterPaid.clearLayers();
     clusterPaid.addLayers(visPaid);
     refreshFmLayer();
+    refreshDepthLayer(true);
+    refreshUhaLayer(true);
     updateStats();
   }
 
@@ -594,6 +756,7 @@
     var sc = spotScore(s);
     var fav = state.favs.has(favKey(s));
     var bansNow = RULES ? activeBans(s.r, new Date()) : [];
+    var di = depthInfo(s);
     var ym = 'https://yandex.by/maps/?pt=' + s.lon.toFixed(5) + ',' + s.lat.toFixed(5) + '&z=15&l=map';
     return '<div class="card-top"><span class="rank">#' + (i + 1) + '</span><h3>' + esc(s.name) + '</h3>' +
       '<button class="fav' + (fav ? ' on' : '') + '" aria-label="Избранное">' + (fav ? '★' : '☆') + '</button></div>' +
@@ -603,6 +766,7 @@
         return '<span class="tag' + (state.fishes.some(function (sf) { return normFish(sf) === normFish(f); }) ? ' hot' : '') + '">' + esc(f) + '</span>';
       }).join('') + '</div>' +
       (!s.paid && s.note ? '<div class="card-note">' + esc(s.note) + '</div>' : '') +
+      (di ? '<div class="card-depth">' + di + '</div>' : '') +
       '<div class="card-foot">' +
       '<span class="badge ' + (s.paid ? 'paid' : 'free') + '">' + (s.paid ? 'платно' : 'бесплатно') + '</span>' +
       (s.paid ? '<span class="badge paid">' + esc(s.paid_price || 'уточняйте') + '</span>' : '') +
@@ -1555,7 +1719,7 @@
     });
     [
       ['lay-free', 'free', null], ['lay-paid', 'paid', null],
-      ['lay-fav', 'fav', null], ['fm-layer', 'fm', null]
+      ['lay-fav', 'fav', null], ['fm-layer', 'fm', null], ['lay-depth', 'depth', null]
     ].forEach(function (c) {
       var el = $(c[0]);
       el.addEventListener('change', function () {
@@ -1612,13 +1776,14 @@
       weatherRefresh: $('weather-refresh'), legendToggle: $('legend-toggle'), legendBody: $('legend-body'),
       burger: $('burger'), burgerFiltersBtn: $('burger-filters-btn'), bfPanel: $('bf-panel'), topbar: $('topbar'), brand: $('brand'),
       mapFilters: $('map-filters'), mapwrap: $('mapwrap'),
-      layFree: $('lay-free'), layPaid: $('lay-paid'), layFav: $('lay-fav'), fmLayer: $('fm-layer')
+      layFree: $('lay-free'), layPaid: $('lay-paid'), layFav: $('lay-fav'), fmLayer: $('fm-layer'), layDepth: $('lay-depth')
     };
     loadState();
     els.layFree.checked = state.layers.free;
     els.layPaid.checked = state.layers.paid;
     els.layFav.checked = state.layers.fav;
     els.fmLayer.checked = state.layers.fm;
+    els.layDepth.checked = state.layers.depth;
     typeBtnLabel();
     try {
       var o = JSON.parse(localStorage.getItem('rb.origin'));
@@ -1654,6 +1819,8 @@
     if (state.legendOpen) { els.legendBody.classList.remove('hide'); els.legendToggle.textContent = 'Легенда ▾'; }
     initMap();
     buildMarkers();
+    buildUhaMarkers();
+    buildGenMarkers();
     setTimeout(function () { buildFisherMarkers(); refreshFmLayer(); }, 120);
     buildActivity();
     D.spots.forEach(function (s) { s._d = state.origin ? distKm(state.origin.lat, state.origin.lon, s.lat, s.lon) : null; });

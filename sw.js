@@ -1,4 +1,4 @@
-const CACHE = 'bel-fish-v31';
+const CACHE = 'bel-fish-v38';
 const PRECACHE = [
   './index.html',
   './app.js',
@@ -6,6 +6,8 @@ const PRECACHE = [
   './data_fisher.js',
   './data_guide.js',
   './data_rules.js',
+  './data_depths.js',
+  './data_uhamap.js',
   './leaflet.js',
   './markercluster.js',
   './leaflet.css',
@@ -68,7 +70,8 @@ self.addEventListener('fetch', e => {
 
   const staticFile = req.url.includes('app.js') || req.url.includes('data.js') ||
     req.url.includes('data_fisher.js') || req.url.includes('data_guide.js') ||
-    req.url.includes('data_rules.js') ||
+    req.url.includes('data_rules.js') || req.url.includes('data_depths.js') ||
+    req.url.includes('data_uhamap.js') ||
     req.url.includes('leaflet.js') ||
     req.url.includes('markercluster.js') || req.url.includes('.css') ||
     req.url.includes('manifest.webmanifest') ||
