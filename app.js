@@ -39,7 +39,7 @@
   };
 
   var els = {};
-  var map = null, clusterFree = null, clusterPaid = null, markers = {}, radiusLayer = null, dayBannerShown = false;
+  var map = null, clusterFree = null, clusterPaid = null, markers = {}, radiusLayer = null, dayBannerShown = false, originMarker = null;
   var depthLayer = null, depthZoomOk = false;
   var uhaCluster = null, uhaDepthLayer = null, uhaZoomOk = false;
   var genCluster = null, genMarkers = {};
@@ -245,6 +245,7 @@
     FISHER.forEach(function (f) { f._d = state.origin ? distKm(state.origin.lat, state.origin.lon, f.lat, f.lon) : null; });
     D.spots.forEach(function (s) { s._score = spotScore(s); });
     if (state.origin && state.radius > 0) updateRadius();
+    updateOriginMarker();
     refreshMarkers();
     renderCards();
     renderList();
@@ -675,6 +676,23 @@
         color: '#ffb454', weight: 2.5, dashArray: '8 8', fill: true, fillColor: '#ffb454', fillOpacity: 0.05, interactive: false
       }).addTo(map);
     }
+  }
+
+  function updateOriginMarker() {
+    if (!map) return;
+    if (originMarker && !state.origin) { map.removeLayer(originMarker); originMarker = null; }
+    if (!state.origin) return;
+    if (originMarker && originMarker.getLatLng().lat === state.origin.lat && originMarker.getLatLng().lng === state.origin.lon) return;
+    if (originMarker) { map.removeLayer(originMarker); originMarker = null; }
+    originMarker = L.marker([state.origin.lat, state.origin.lon], {
+      interactive: false,
+      icon: L.divIcon({
+        html: '<div style="width:24px;height:24px;border-radius:50%;background:#4fc3f7;border:2px solid #0d1420;box-shadow:0 0 6px rgba(79,195,247,.9)"></div>',
+        className: '',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+      })
+    }).addTo(map);
   }
 
   function refreshMarkers() {
@@ -1524,9 +1542,10 @@
             .then(function (r) { return r.json(); })
             .then(function (j) {
               var nm = j && j.display_name ? shortName(j.display_name) : 'Моё местоположение';
+              els.originInput.value = nm;
               setOrigin({ name: nm, lat: lat, lon: lon });
             })
-            .catch(function () { setOrigin({ name: 'Моё местоположение', lat: lat, lon: lon }); });
+            .catch(function () { els.originInput.value = 'Моё местоположение'; setOrigin({ name: 'Моё местоположение', lat: lat, lon: lon }); });
         }, function () {
           if (attempt < 2) { setTimeout(function () { tryPos(attempt + 1); }, 600); return; }
           els.gpsBtn.style.opacity = '1';
