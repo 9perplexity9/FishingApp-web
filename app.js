@@ -687,10 +687,10 @@
     originMarker = L.marker([state.origin.lat, state.origin.lon], {
       interactive: false,
       icon: L.divIcon({
-        html: '<div style="width:24px;height:24px;border-radius:50%;background:#4fc3f7;border:2px solid #0d1420;box-shadow:0 0 6px rgba(79,195,247,.9)"></div>',
+        html: '<div style="width:26px;height:26px;border-radius:50%;background:#e53935;border:2px solid #fff;color:#fff;font-size:15px;line-height:22px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.5)">★</div>',
         className: '',
-        iconSize: [24, 24],
-        iconAnchor: [12, 12]
+        iconSize: [26, 26],
+        iconAnchor: [13, 13]
       })
     }).addTo(map);
   }

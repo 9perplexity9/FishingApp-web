@@ -1,4 +1,4 @@
-const CACHE = 'bel-fish-v39';
+const CACHE = 'bel-fish-v40';
 const PRECACHE = [
   './index.html',
   './app.js',
