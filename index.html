@@ -8,6 +8,10 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin>
+<link rel="dns-prefetch" href="https://tile.openstreetmap.org">
+<link rel="preconnect" href="https://nominatim.openstreetmap.org">
+<link rel="dns-prefetch" href="https://nominatim.openstreetmap.org">
 <style>
 @import "./leaflet.css";
 @import "./markercluster.css";
@@ -21,7 +25,7 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%;overflow-x:hidden}
-body{overflow-x:hidden}
+body{overflow-x:clip}
 body{background:var(--bg);color:var(--text);font:15px/1.5 var(--font);min-height:100vh;display:flex;flex-direction:column}
 main{flex:1 0 auto}
 button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
@@ -43,7 +47,9 @@ a:hover{text-decoration:underline}
 .burger:hover{border-color:var(--accent)}
 .topbar.compact .burger{display:block}
 .topbar.compact .burger#burger{margin-left:auto}
-.topbar.compact .bf-burger{flex:0 0 auto;padding:11px 12px}
+.topbar.compact{border-bottom:none}
+.topbar.compact .origin{flex:1 1 100%;order:3;max-width:none;min-width:0;position:relative;border-top:1px solid var(--border);padding:10px 16px 0;margin:6px -16px 0;gap:8px}
+.topbar.compact .bf-burger{flex:0 0 auto}
 .bf-panel{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;gap:8px;padding:12px;background:var(--panel);border-bottom:1px solid var(--border);z-index:1001;box-shadow:0 14px 30px rgba(0,0,0,.5)}
 .bf-panel.open{display:flex}
 .bf-panel .filters{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0}
@@ -51,22 +57,18 @@ a:hover{text-decoration:underline}
 .bf-panel #list-filters > span{display:none}
 .bf-panel #list-filters .type-wrap{order:1;display:block;width:100%}
 .bf-panel #list-filters select{order:1;width:100%;min-width:0;max-width:none;min-height:44px}
-.bf-panel #list-filters .sel{order:1;width:100%;min-width:0;max-width:none;min-height:44px;text-align:center;text-align-last:center;font-size:13px}
+.bf-panel #list-filters .sel{order:1;width:100%;min-width:0;max-width:none;min-height:44px;text-align:center;text-align-last:center;font-size:16px}
 .bf-panel #list-filters .opt{order:2;display:flex;align-items:center;gap:8px;padding:6px 4px;white-space:nowrap}
 .bf-panel .filters .type-wrap{display:block;width:100%}
 .bf-panel .filters .type-wrap .sel,.bf-panel .filters select,.bf-panel .filters .search{width:100%;min-width:0;max-width:none;min-height:44px}
 .bf-panel .filters select{text-align:center;text-align-last:center}
 .bf-panel .filters .search{margin-left:0}
+.bf-panel .filters .search-wrap{width:100%;max-width:none;margin-left:0}
 .bf-panel .type-panel{position:absolute;top:calc(100% + 4px);left:0;right:0;width:100%;max-height:min(50vh,320px);overflow-y:auto;box-shadow:0 14px 30px rgba(0,0,0,.5);margin:0;z-index:1200}
 .bf-panel .opt{display:flex;align-items:center;gap:8px;padding:6px 4px;white-space:nowrap}
-.topbar.compact .origin{flex:1 1 100%;max-width:none;min-width:0;order:3;position:static;border-top:1px solid var(--border);padding-top:10px;margin-top:6px}
 .topbar.compact .tabs{position:absolute;top:100%;left:0;right:0;flex-direction:column;gap:2px;display:none;background:var(--panel);border-bottom:1px solid var(--border);padding:8px;z-index:1001;box-shadow:0 14px 30px rgba(0,0,0,.5);max-height:calc(100vh - 100px);overflow-y:auto}
 .topbar.compact .tabs.open{display:flex}
 .topbar.compact .tabs button{padding:11px 12px;text-align:left;border-radius:8px}
-.topbar.compact #burger-filters{display:flex;flex-direction:column;gap:10px;padding:12px 6px;border-top:1px solid var(--border)}
-.topbar.compact #burger-filters .sel{width:100%;min-height:44px}
-.topbar.compact #burger-filters .opt{display:flex;align-items:center;gap:8px;padding:6px 4px;white-space:nowrap}
-.topbar.compact #burger-filters .search{width:100%;max-width:none;min-height:44px}
 .stats-row .stats{display:none}
 .brand{font-weight:800;letter-spacing:.06em;font-size:17px;white-space:nowrap}
 .brand b{color:var(--accent)}
@@ -76,6 +78,9 @@ a:hover{text-decoration:underline}
 .origin button:hover{border-color:var(--accent)}
 .loc-map{position:absolute;right:12px;bottom:36px;z-index:900;width:44px;height:44px;display:grid;place-items:center;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.4)}
 .loc-map:hover{border-color:var(--accent)}
+.loc-map2{bottom:88px}
+.loc-map::after{content:attr(data-tooltip);position:absolute;right:calc(100% + 10px);top:50%;transform:translateY(-50%);background:var(--panel);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:8px;font-size:12px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .15s;z-index:901;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.loc-map:hover::after,.loc-map:focus::after{opacity:1}
 #origin-suggest{position:absolute;top:100%;left:0;right:0;margin-top:4px;background:var(--panel);border:1px solid var(--border);border-radius:8px;z-index:2000;max-height:264px;overflow-y:auto;box-shadow:0 10px 28px rgba(0,0,0,.4)}
 #origin-suggest .sug{padding:8px 10px;cursor:pointer;color:var(--text);font-size:13px;border-bottom:1px solid rgba(34,48,74,.45)}
 #origin-suggest .sug:last-child{border-bottom:none}
@@ -88,9 +93,9 @@ a:hover{text-decoration:underline}
 .view{padding:14px 16px 90px;max-width:1200px;margin:0 auto}
 
 .filters{display:flex;gap:8px 10px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:10px;padding:0 16px;row-gap:8px}
-@media(max-width:520px){.search{flex:1 1 100%;max-width:none}}
-.sel{font-size:13px;padding:5px 10px;min-height:44px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);cursor:pointer}
-.filters select,.sortbar select,.sel{font-size:13px;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);cursor:pointer;appearance:none;-webkit-appearance:none}
+@media(max-width:520px){.search-wrap,.search{flex:1 1 100%;max-width:none}}
+.sel{font-size:16px;padding:5px 10px;min-height:44px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);cursor:pointer}
+.filters select,.sortbar select,.sel{font-size:16px;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);cursor:pointer;appearance:none;-webkit-appearance:none}
 .filters select:hover,.sortbar select:hover,.sel:hover{border-color:var(--accent)}
 .type-wrap{position:relative;display:inline-block}
 .type-panel{position:absolute;top:100%;left:0;margin-top:4px;z-index:1100;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 10px;min-width:200px;max-height:min(60vh,420px);overflow-y:auto;box-shadow:0 10px 28px rgba(0,0,0,.45);display:flex;flex-direction:column;gap:2px}
@@ -101,6 +106,13 @@ a:hover{text-decoration:underline}
 .opt input{accent-color:var(--accent)}
 .search{flex:1;min-width:160px;max-width:280px;margin-left:auto;text-align:center}
 .search::placeholder{text-align:center}
+.search-wrap{position:relative;display:flex;flex:1;min-width:160px;max-width:280px;margin-left:auto}
+.search-wrap .search{flex:1;min-width:0;max-width:none;margin-left:0}
+#search-suggest{position:absolute;top:100%;left:0;right:0;margin-top:4px;background:var(--panel);border:1px solid var(--border);border-radius:8px;z-index:2000;max-height:264px;overflow-y:auto;box-shadow:0 10px 28px rgba(0,0,0,.4)}
+#search-suggest .sug{padding:8px 10px;cursor:pointer;color:var(--text);font-size:13px;border-bottom:1px solid rgba(34,48,74,.45)}
+#search-suggest .sug:last-child{border-bottom:none}
+#search-suggest .sug:hover,#search-suggest .sug.on{background:var(--panel2);color:var(--accent)}
+#search-suggest .sug b{color:var(--accent);font-weight:700}
 
 #view-map{max-width:none;width:100%;margin:0;padding:0 16px 14px;flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
 #view-map .filters:empty{display:none}
@@ -252,8 +264,9 @@ table.seasons td{padding:6px 8px;border-bottom:1px solid rgba(34,48,74,.55);colo
 .hcell .hcpr{color:var(--link);font-variant-numeric:tabular-nums}
 .hcell .hcw{color:var(--faint);font-variant-numeric:tabular-nums}
 
-footer{border-top:1px solid var(--border);margin-top:auto;padding:16px;color:var(--faint);font-size:12.5px;text-align:center;line-height:1.8}
-footer a{color:var(--muted)}
+footer{border-top:1px solid var(--border);margin-top:auto;padding:10px 16px;color:var(--faint);font-size:11px;display:flex;flex-direction:column;align-items:center;gap:4px;line-height:1.5;text-align:center}
+footer a{color:var(--muted);text-decoration:none}
+footer a:hover{color:var(--accent);text-decoration:underline}
 .muted{color:var(--faint);font-size:13px}
 .empty{color:var(--muted);text-align:center;padding:30px 10px;font-size:14px}
 </style>
@@ -331,11 +344,17 @@ footer a{color:var(--muted)}
           <label class="opt"><input type="radio" name="mapmin" value="90">≥ 90</label>
         </div>
       </div>
-      <input class="search" id="search" type="search" placeholder="Поиск места или рыбы…" aria-label="Поиск">
+      <div class="search-wrap">
+        <input class="search" id="search" type="search" placeholder="Поиск места или рыбы…" aria-label="Поиск">
+        <div id="search-suggest" class="hide"></div>
+      </div>
     </div>
     <div id="mapwrap">
       <div id="map"></div>
-      <button type="button" class="loc-map" id="gps-btn" title="Моё местоположение" aria-label="Определить местоположение">
+      <button type="button" class="loc-map" id="gps-btn" title="Определить моё местоположение (GPS)" aria-label="Определить местоположение" data-tooltip="Моё местоположение">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-5.3-7-11a7 7 0 0 1 14 0c0 5.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+      </button>
+      <button type="button" class="loc-map loc-map2" id="loc-btn2" title="Показать введённое место" aria-label="Показать введённое место" data-tooltip="Показать введённое место">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
       </button>
       <div class="legend-wrap" id="legend-wrap">
@@ -439,25 +458,19 @@ footer a{color:var(--muted)}
 </main>
 
 <footer>
-  <div id="foot-version">Рыбалка Беларусь · места и отчёты обновляются · 6 областей</div>
-  <div>
-    Данные: собственные наблюдения и открытые источники —
-    <a href="https://by.fishermap.org" target="_blank" rel="noopener">fishermap.org</a> ·
-    <a href="https://rybalka.by" target="_blank" rel="noopener">rybalka.by</a> ·
-    <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> ·
-    <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>
-  </div>
-  <div>Сезонные запреты и нормы вылова — <a href="https://belryba.by" target="_blank" rel="noopener">belryba.by</a> · Непроверенные точки помечаются заметкой.</div>
+  <span>Источники: <a href="https://by.fishermap.org" target="_blank" rel="noopener">fishermap.org</a> · <a href="https://rybalka.by" target="_blank" rel="noopener">rybalka.by</a> · <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OSM</a> · <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> · <a href="https://belryba.by" target="_blank" rel="noopener">belryba.by</a></span>
+  <span id="foot-version">© Рыбалка Беларусь · 6 областей</span>
 </footer>
 
-<script src="./leaflet.js"></script>
-<script src="./markercluster.js"></script>
-<script src="./data.js"></script>
-<script src="./data_guide.js"></script>
-<script src="./data_fisher.js"></script>
-<script src="./data_rules.js"></script>
-<script src="./data_depths.js"></script>
-<script src="./data_uhamap.js"></script>
-<script src="./app.js"></script>
+<script defer src="./leaflet.js"></script>
+<script defer src="./markercluster.js"></script>
+<script defer src="./data.js"></script>
+<script defer src="./data_guide.js"></script>
+<script defer src="./data_fisher.js"></script>
+<script defer src="./data_rules.js"></script>
+<script defer src="./data_depths.js"></script>
+<script defer src="./data_uhamap.js"></script>
+<script defer src="./data_cities.js"></script>
+<script defer src="./app.js"></script>
 </body>
 </html>

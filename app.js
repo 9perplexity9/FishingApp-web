@@ -41,12 +41,14 @@
 
   var els = {};
   var map = null, clusterFree = null, clusterPaid = null, markers = {}, radiusLayer = null, dayBannerShown = false, originMarker = null;
-  var depthLayer = null, depthZoomOk = false;
-  var uhaCluster = null, uhaDepthLayer = null, uhaZoomOk = false;
+  var depthLayer = null, depthZoomOk = false, depthSig = '';
+  var uhaCluster = null, uhaDepthLayer = null, uhaZoomOk = false, uhaSig = '';
   var genCluster = null, genMarkers = {};
   var fisherCluster = null, fmItems = [], fmVisible = {};
   var FISHER = (window.RYB_FISHER && window.RYB_FISHER.spots) ? window.RYB_FISHER.spots : [];
-  var origTimer = null, origItems = [];
+  var cardRefs = [];
+  var origTimer = null, origItems = [], origSeq = 0;
+  var searchTimer = null, searchQTimer = null, searchItems = [], searchSeq = 0;
 
   function $(id) { return document.getElementById(id); }
   function esc(t) {
@@ -104,7 +106,8 @@
         state.list.regions = Array.isArray(s.list.regions) ? s.list.regions : [];
       }
       if (typeof s.dayIdx === 'number') state.dayIdx = s.dayIdx;
-      if (typeof s.useDist === 'boolean') state.listUseDist = s.useDist;
+      if (typeof s.listUseDist === 'boolean') state.listUseDist = s.listUseDist;
+      else if (typeof s.useDist === 'boolean') state.listUseDist = s.useDist;
       if (typeof s.mapUseDist === 'boolean') state.mapUseDist = s.mapUseDist;
       if (Array.isArray(s.chartKeys) && s.chartKeys.length) state.chartKeys = s.chartKeys.filter(function (k) { return ['bite', 'temp', 'precip', 'wind'].indexOf(k) >= 0; });
       state.legendOpen = !!s.legendOpen;
@@ -154,6 +157,8 @@
     D.spots.forEach(function (s) {
       var n = 0;
       for (var i = 0; i < FISHER.length; i++) {
+        var dLat = FISHER[i].lat - s.lat, dLon = FISHER[i].lon - s.lon;
+        if (dLat > 0.2 || dLat < -0.2 || dLon > 0.4 || dLon < -0.4) continue;
         if (distKm(s.lat, s.lon, FISHER[i].lat, FISHER[i].lon) <= 5) n++;
       }
       s._act = n;
@@ -185,7 +190,7 @@
     if (state.fishes.length && !state.fishes.some(function (f) { return s.fish.some(function (sf) { return normFish(sf) === normFish(f); }); })) return false;
     if (state.q) {
       var q = state.q.toLowerCase();
-      var hay = (s.name + ' ' + s.fish.join(' ') + ' ' + (s.note || '') + ' ' + REGIONS[s.r]).toLowerCase();
+      var hay = (s.name + ' ' + (s.note || '') + ' ' + REGIONS[s.r]).toLowerCase();
       if (hay.indexOf(q) < 0) return false;
     }
     if (state.origin && state.radius > 0 && s._d > state.radius) return false;
@@ -195,7 +200,7 @@
   function isListVisible(s) {
     if (state.q) {
       var q = state.q.toLowerCase();
-      var hay = (s.name + ' ' + s.fish.join(' ') + ' ' + (s.note || '') + ' ' + REGIONS[s.r]).toLowerCase();
+      var hay = (s.name + ' ' + (s.note || '') + ' ' + REGIONS[s.r]).toLowerCase();
       if (hay.indexOf(q) < 0) return false;
     }
     if (state.list.fav && !state.favs.has(favKey(s))) return false;
@@ -221,6 +226,16 @@
     return true;
   }
 
+  function fetchTimeout(url, opts, ms) {
+    if (window.AbortController) {
+      var c = new AbortController();
+      var t = setTimeout(function () { c.abort(); }, ms || 10000);
+      opts = opts || {}; opts.signal = c.signal;
+      return fetch(url, opts).then(function (r) { clearTimeout(t); return r; }, function (e) { clearTimeout(t); throw e; });
+    }
+    return fetch(url, opts || {});
+  }
+
   var NOMINATIM = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=by&q=';
   function geocode(name, cb) {
     var key = 'rb.geo.' + name.toLowerCase();
@@ -228,7 +243,7 @@
       var cached = localStorage.getItem(key);
       if (cached) { cb(JSON.parse(cached)); return; }
     } catch (e) {}
-    fetch(NOMINATIM + encodeURIComponent(name))
+    fetchTimeout(NOMINATIM + encodeURIComponent(name), null, 10000)
       .then(function (r) { return r.json(); })
       .then(function (a) {
         if (!a || !a.length) { cb(null); return; }
@@ -240,6 +255,7 @@
   }
 
   function setOrigin(o, silent) {
+    if (!o || !isFinite(o.lat) || !isFinite(o.lon)) return;
     state.origin = o;
     state.weatherAt = 0;
     try { localStorage.setItem('rb.origin', JSON.stringify(o)); } catch (e) {}
@@ -248,6 +264,7 @@
     D.spots.forEach(function (s) { s._score = spotScore(s, state.listUseDist); });
     if (state.origin && state.radius > 0) updateRadius();
     updateOriginMarker();
+    if (map) map.panTo([state.origin.lat, state.origin.lon]);
     refreshMarkers();
     renderCards();
     renderList();
@@ -289,6 +306,7 @@
 
   function initMap() {
     map = L.map('map', mapOpts).setView([53.7, 27.6], 7);
+    map.attributionControl.setPrefix(false);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 18,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -442,6 +460,7 @@
       if (vis) { visCount++; keep[it.f.id] = 1; if (!fmVisible[it.f.id]) add.push(it.m); }
       else if (fmVisible[it.f.id]) remove.push(it.m);
     }
+    if (add.length === 0 && remove.length === 0) { fmVisible = keep; return; }
     if (visCount === 0) { fisherCluster.clearLayers(); fmVisible = {}; return; }
     if (visCount === fmItems.length) {
       var all = new Array(fmItems.length);
@@ -506,15 +525,24 @@
     });
   }
 
+  function depthPolysSig() {
+    var out = [];
+    D.spots.forEach(function (s) { if (isVisible(s) && isMapVisible(s)) out.push(s.id); });
+    return out.join(',');
+  }
+
   function refreshDepthLayer(force) {
     if (!depthLayer || !map) return;
     var on = !!state.layers.depth;
     var ok = on && map.getZoom() >= 12;
-    if (ok && (force || ok !== depthZoomOk)) {
+    var sig = ok ? depthPolysSig() : '';
+    if (ok && (sig !== depthSig || ok !== depthZoomOk)) {
       depthLayer.clearLayers();
       depthPolys();
+      depthSig = sig;
     } else if (!ok && ok !== depthZoomOk) {
       depthLayer.clearLayers();
+      depthSig = '';
     }
     depthZoomOk = ok;
     if (on && !map.hasLayer(depthLayer)) map.addLayer(depthLayer);
@@ -583,6 +611,12 @@
     });
   }
 
+  function uhaPolysSig() {
+    var out = [];
+    Object.keys(UH).forEach(function (k) { if (UH[k] && UH[k].features) out.push(k); });
+    return out.join(',');
+  }
+
   function refreshUhaLayer(force) {
     if (!UH || !map) return;
     var on = !!state.layers.depth;
@@ -592,11 +626,14 @@
     }
     if (!uhaDepthLayer) return;
     var ok = on && map.getZoom() >= 12;
-    if (ok && (force || ok !== uhaZoomOk)) {
+    var sig = ok ? uhaPolysSig() : '';
+    if (ok && (sig !== uhaSig || ok !== uhaZoomOk)) {
       uhaDepthLayer.clearLayers();
       uhaPolys();
+      uhaSig = sig;
     } else if (!ok && ok !== uhaZoomOk) {
       uhaDepthLayer.clearLayers();
+      uhaSig = '';
     }
     uhaZoomOk = ok;
     if (on && !map.hasLayer(uhaDepthLayer)) map.addLayer(uhaDepthLayer);
@@ -713,6 +750,7 @@
   }
 
   function updateStats() {
+    if (!els.stats || getComputedStyle(els.stats).display === 'none') return;
     var n = 0;
     D.spots.forEach(function (s) { if (isVisible(s) && isLayerVisible(s) && isMapVisible(s)) n++; });
     els.stats.innerHTML = '<span>Показано <b>' + n + '</b> из <b>' + D.spots.length + '</b> мест</span>' +
@@ -771,6 +809,12 @@
     });
   }
 
+  function fishTagsHtml(s) {
+    return s.fish.map(function (f) {
+      return '<span class="tag' + (state.list.fishes.some(function (sf) { return normFish(sf) === normFish(f); }) ? ' hot' : '') + '">' + esc(f) + '</span>';
+    }).join('');
+  }
+
   function buildCardHtml(s, i) {
     var d = state.origin ? fmtDist(s._d) : '';
     var sc = spotScore(s, state.listUseDist);
@@ -782,9 +826,7 @@
       '<button class="fav' + (fav ? ' on' : '') + '" aria-label="Избранное">' + (fav ? '★' : '☆') + '</button></div>' +
       '<div class="card-meta"><span>' + esc(REGIONS[s.r]) + '</span><span>·</span><span>' + esc(s.t) + '</span>' +
       '<span class="card-dist"></span></div>' +
-      '<div class="card-tags">' + s.fish.map(function (f) {
-        return '<span class="tag' + (state.fishes.some(function (sf) { return normFish(sf) === normFish(f); }) ? ' hot' : '') + '">' + esc(f) + '</span>';
-      }).join('') + '</div>' +
+      '<div class="card-tags">' + fishTagsHtml(s) + '</div>' +
       (!s.paid && s.note ? '<div class="card-note">' + esc(s.note) + '</div>' : '') +
       (di ? '<div class="card-depth">' + di + '</div>' : '') +
       '<div class="card-foot">' +
@@ -801,13 +843,17 @@
   function goToSpot(s) {
     switchTab('map');
     var m = markers[favKey(s)];
-    map.setView([s.lat, s.lon], 13);
-    setTimeout(function () { if (m && map.hasLayer(m)) openPopup(m, s); }, 250);
+    map.panTo([s.lat, s.lon]);
+    setTimeout(function () {
+      if (!m) return;
+      var onMap = map.hasLayer(m) || (clusterFree && clusterFree.hasLayer(m)) || (clusterPaid && clusterPaid.hasLayer(m));
+      if (onMap) openPopup(m, s);
+    }, 250);
   }
 
   function renderCards() {
     D.spots.forEach(function (s, i) {
-      var card = els.cards.querySelector('.card[data-i="' + i + '"]');
+      var card = cardRefs[i];
       if (!card) return;
       card.classList.toggle('hide', !isListVisible(s));
       s._score = spotScore(s, state.listUseDist);
@@ -820,6 +866,8 @@
       }
       var dEl = card.querySelector('.card-dist');
       if (dEl) dEl.textContent = state.origin ? '· ' + fmtDist(s._d) : '';
+      var tg = card.querySelector('.card-tags');
+      if (tg) tg.innerHTML = fishTagsHtml(s);
     });
   }
 
@@ -843,12 +891,12 @@
       arr.sort(function (a, b) { return D.spots[a].name.localeCompare(D.spots[b].name, 'ru'); });
     } else {
       var sc = {};
-      arr.forEach(function (i) { sc[i] = spotScore(D.spots[i], state.listUseDist); });
+      arr.forEach(function (i) { sc[i] = D.spots[i]._score != null ? D.spots[i]._score : spotScore(D.spots[i], state.listUseDist); });
       arr.sort(function (a, b) { return sc[b] - sc[a]; });
     }
     var frag = document.createDocumentFragment();
     arr.forEach(function (i, pos) {
-      var c = els.cards.querySelector('.card[data-i="' + i + '"]');
+      var c = cardRefs[i];
       if (c) {
         var rk = c.querySelector('.rank');
         if (rk) rk.textContent = '#' + (pos + 1);
@@ -1118,7 +1166,7 @@
       '&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,pressure_msl_mean,sunrise,sunset' +
       '&hourly=temperature_2m,precipitation_probability,weathercode,wind_speed_10m' +
       '&timezone=Europe/Minsk&forecast_days=7';
-    fetch(url)
+    fetchTimeout(url, null, 15000)
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (!j.daily) throw new Error('bad');
@@ -1419,6 +1467,7 @@
   function shortName(displayName) { return String(displayName).split(',')[0].trim(); }
 
   function hideSuggest() {
+    clearTimeout(origTimer); origTimer = null; origSeq++;
     els.originSuggest.classList.add('hide');
     els.originSuggest.innerHTML = '';
     origItems = [];
@@ -1446,10 +1495,49 @@
     origItems = items;
   }
 
+  function hideSearchSuggest() {
+    clearTimeout(searchTimer); searchTimer = null; searchSeq++;
+    els.searchSuggest.classList.add('hide');
+    els.searchSuggest.innerHTML = '';
+    searchItems = [];
+  }
+
+  function pickSearchItem(it) {
+    clearTimeout(searchQTimer);
+    state.q = it.name;
+    els.search.value = it.name;
+    hideSearchSuggest();
+    refreshMarkers(); renderCards(); renderList(); saveState();
+    goToSpot(it);
+  }
+
+  function showSearchSuggest(items) {
+    var box = els.searchSuggest;
+    box.innerHTML = '';
+    items.forEach(function (it, idx) {
+      var d = document.createElement('div');
+      d.className = 'sug' + (idx === 0 ? ' on' : '');
+      var b = document.createElement('b');
+      b.textContent = it.name;
+      var sp = document.createElement('span');
+      sp.textContent = ' — ' + REGIONS[it.r] + ', ' + it.t;
+      d.appendChild(b);
+      d.appendChild(sp);
+      d.addEventListener('click', function () { pickSearchItem(it); });
+      box.appendChild(d);
+    });
+    box.classList.remove('hide');
+    searchItems = items;
+  }
+
   var tabsNaturalW = 0, filtersMoved = false, listFiltersMoved = false;
   function layoutFit() {
     if (!els.topbar || !els.brand) return;
-    if (!tabsNaturalW) tabsNaturalW = els.tabs.scrollWidth || 0;
+    if (!tabsNaturalW) {
+      var kids = els.tabs.children;
+      for (var i = 0; i < kids.length; i++) tabsNaturalW += kids[i].offsetWidth;
+      tabsNaturalW += (kids.length - 1) * 4 + 8;
+    }
     var need = els.brand.offsetWidth + Math.min(els.originForm.offsetWidth, 460) + tabsNaturalW + 70;
     var compact = els.topbar.classList.contains('compact');
     var w = els.topbar.clientWidth;
@@ -1483,7 +1571,7 @@
         els.viewList.insertBefore(els.listFilters, els.cardsEl);
         listFiltersMoved = false;
       }
-      if (els.burgerFiltersBtn && els.tabs) els.topbar.insertBefore(els.burgerFiltersBtn, els.tabs);
+      els.topbar.insertBefore(els.burgerFiltersBtn, els.bfPanel);
     }
   }
 
@@ -1514,18 +1602,46 @@
       clearTimeout(origTimer);
       var v = els.originInput.value.trim();
       if (!v) { hideSuggest(); return; }
-      origTimer = setTimeout(function () {
-        fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=by&q=' + encodeURIComponent(v), { headers: { Accept: 'application/json' } })
-          .then(function (r) { return r.json(); })
-          .then(function (a) {
+      var mySeq = ++origSeq;
+      var cities = window.RYB_CITIES || [];
+      var ql = v.toLowerCase();
+      var local = [];
+      for (var ci = 0; ci < cities.length && local.length < 6; ci++) {
+        if (cities[ci].n.toLowerCase().indexOf(ql) >= 0) local.push(cities[ci]);
+      }
+      if (local.length) {
+        var items = local.map(function (c) { return { display_name: c.n, lat: c.lat, lon: c.lon }; });
+        showSuggest(items);
+        return;
+      }
+      var suggKey = 'rb.sugg.' + v.toLowerCase();
+      if (v.length >= 3) {
+        try {
+          var cached = localStorage.getItem(suggKey);
+          if (cached) {
+            var a = JSON.parse(cached);
+            if (mySeq !== origSeq || els.originInput.value.trim() !== v) return;
             if (!a || !a.length) { hideSuggest(); return; }
             showSuggest(a);
+            return;
+          }
+        } catch (e) {}
+      }
+      origTimer = setTimeout(function () {
+        fetchTimeout('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=by&accept-language=ru&viewbox=23.1,56.2,32.7,51.2&bounded=1&q=' + encodeURIComponent(v), { headers: { Accept: 'application/json' } }, 10000)
+          .then(function (r) { return r.json(); })
+          .then(function (a) {
+            if (mySeq !== origSeq || els.originInput.value.trim() !== v) return;
+            if (!a || !a.length) { hideSuggest(); return; }
+            if (v.length >= 3) { try { localStorage.setItem(suggKey, JSON.stringify(a)); } catch (e) {} }
+            showSuggest(a);
           })
-          .catch(function () { hideSuggest(); });
-      }, 350);
+          .catch(function () { if (mySeq !== origSeq) return; hideSuggest(); });
+      }, 200);
     });
     document.addEventListener('click', function (e) {
       if (e.target !== els.originInput && !els.originSuggest.contains(e.target)) hideSuggest();
+      if (e.target !== els.search && !els.searchSuggest.contains(e.target)) hideSearchSuggest();
       if (!els.tabs.contains(e.target) && !els.burger.contains(e.target)) {
         els.tabs.classList.remove('open');
         if (els.burger) els.burger.setAttribute('aria-expanded', 'false');
@@ -1542,14 +1658,16 @@
         navigator.geolocation.getCurrentPosition(function (p) {
           els.gpsBtn.style.opacity = '1';
           var lat = p.coords.latitude, lon = p.coords.longitude;
-          fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + lat + '&lon=' + lon + '&zoom=10&accept-language=ru', { headers: { Accept: 'application/json' } })
+          fetchTimeout('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + lat + '&lon=' + lon + '&zoom=10&accept-language=ru', { headers: { Accept: 'application/json' } }, 10000)
             .then(function (r) { return r.json(); })
             .then(function (j) {
               var nm = j && j.display_name ? shortName(j.display_name) : 'Моё местоположение';
               els.originInput.value = nm;
               setOrigin({ name: nm, lat: lat, lon: lon });
+              switchTab('map');
+              map.panTo([lat, lon]);
             })
-            .catch(function () { els.originInput.value = 'Моё местоположение'; setOrigin({ name: 'Моё местоположение', lat: lat, lon: lon }); });
+            .catch(function () { els.originInput.value = 'Моё местоположение'; setOrigin({ name: 'Моё местоположение', lat: lat, lon: lon }); switchTab('map'); map.panTo([lat, lon]); });
         }, function () {
           if (attempt < 2) { setTimeout(function () { tryPos(attempt + 1); }, 600); return; }
           els.gpsBtn.style.opacity = '1';
@@ -1557,6 +1675,17 @@
         }, { enableHighAccuracy: false, timeout: 12000 });
       };
       tryPos(0);
+    });
+    els.locBtn2.addEventListener('click', function () {
+      var q = els.search.value.trim().toLowerCase();
+      if (!q) { els.search.placeholder = 'Введите место'; els.search.focus(); return; }
+      var found = null;
+      for (var si = 0; si < D.spots.length; si++) {
+        if (D.spots[si].name.toLowerCase().indexOf(q) >= 0) { found = D.spots[si]; break; }
+      }
+      if (!found) { els.search.placeholder = 'Место не найдено'; els.search.focus(); return; }
+      switchTab('map');
+      map.panTo([found.lat, found.lon]);
     });
     els.typeBtn.addEventListener('click', function () {
       closePanels('typePanel');
@@ -1611,7 +1740,7 @@
       if (!els.radiusWrap.contains(e.target)) els.radiusPanel.classList.add('hide');
     });
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { closePanels(null); hideSuggest(); }
+      if (e.key === 'Escape') { closePanels(null); hideSuggest(); hideSearchSuggest(); }
     });
     els.lfFav.addEventListener('change', function () { state.list.fav = els.lfFav.checked; renderCards(); renderList(); saveState(); });
     els.lfFree.addEventListener('change', function () { state.list.free = els.lfFree.checked; renderCards(); renderList(); saveState(); });
@@ -1731,10 +1860,38 @@
       state.mapUseDist = els.mfDist.checked;
       refreshMarkers(); saveState();
     });
-    var t;
     els.search.addEventListener('input', function () {
-      clearTimeout(t);
-      t = setTimeout(function () { state.q = els.search.value.trim(); refreshMarkers(); renderCards(); renderList(); saveState(); }, 250);
+      clearTimeout(searchQTimer);
+      clearTimeout(searchTimer);
+      var v = els.search.value.trim();
+      if (!v) hideSearchSuggest();
+      var mySeq = ++searchSeq;
+      searchTimer = setTimeout(function () {
+        if (mySeq !== searchSeq || !v) return;
+        var q = v.toLowerCase();
+        var res = [];
+        D.spots.forEach(function (s) {
+          if (res.length >= 8) return;
+          if (s.name.toLowerCase().indexOf(q) >= 0) res.push(s);
+        });
+        if (res.length < 8) {
+          D.spots.forEach(function (s) {
+            if (res.length >= 8) return;
+            if (s.name.toLowerCase().indexOf(q) >= 0) return;
+            var hay = (s.name + ' ' + (s.note || '') + ' ' + REGIONS[s.r]).toLowerCase();
+            if (hay.indexOf(q) >= 0) res.push(s);
+          });
+        }
+        if (!res.length) { hideSearchSuggest(); return; }
+        showSearchSuggest(res);
+      }, 200);
+      searchQTimer = setTimeout(function () { state.q = els.search.value.trim(); refreshMarkers(); renderCards(); renderList(); saveState(); }, 250);
+    });
+    els.search.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && searchItems.length) {
+        e.preventDefault();
+        pickSearchItem(searchItems[0]);
+      }
     });
     els.sorts.addEventListener('click', function (e) {
       var b = e.target.closest('button');
@@ -1792,11 +1949,11 @@
 
   function init() {
     els = {
-      originForm: $('origin-form'), originInput: $('origin-input'), originSuggest: $('origin-suggest'), gpsBtn: $('gps-btn'),
+      originForm: $('origin-form'), originInput: $('origin-input'), originSuggest: $('origin-suggest'), gpsBtn: $('gps-btn'), locBtn2: $('loc-btn2'),
       tabs: $('tabs'), viewMap: $('view-map'), viewList: $('view-list'), viewTackle: $('view-tackle'), cardsEl: $('cards'), listFilters: $('list-filters'),
       viewFish: $('view-fish'), viewRules: $('view-rules'), viewWeather: $('view-weather'),
       stats: $('stats'), cards: $('cards'), listCount: $('list-count'), sorts: $('sorts'),
-      regionWrap: $('region-wrap'), regionBtn: $('region-btn'), regionPanel: $('region-panel'), regionAll: $('region-all'), typeWrap: $('type-wrap'), typeBtn: $('type-btn'), typePanel: $('type-panel'), tyAll: $('ty-all'), fishWrap: $('fish-wrap'), fishBtn: $('fish-btn'), fishPanel: $('fish-panel'), fishAll: $('fish-all'), radiusWrap: $('radius-wrap'), radiusBtn: $('radius-btn'), radiusPanel: $('radius-panel'), mapminWrap: $('mapmin-wrap'), mapminBtn: $('mapmin-btn'), mapminPanel: $('mapmin-panel'), mfDist: $('mf-dist'), search: $('search'),       lfFav: $('lf-fav'), lfFree: $('lf-free'), lfPaid: $('lf-paid'), lfDist: $('lf-dist'), lfMin: $('lf-min'), lfTypeWrap: $('lf-type-wrap'), lfTypeBtn: $('lf-type-btn'), lfTypePanel: $('lf-type-panel'), lftAll: $('lft-all'), lfFishWrap: $('lf-fish-wrap'), lfFishBtn: $('lf-fish-btn'), lfFishPanel: $('lf-fish-panel'), lffAll: $('lff-all'), lfRegWrap: $('lf-reg-wrap'), lfRegBtn: $('lf-reg-btn'), lfRegPanel: $('lf-reg-panel'), lfRegAll: $('lf-reg-all'),
+      regionWrap: $('region-wrap'), regionBtn: $('region-btn'), regionPanel: $('region-panel'), regionAll: $('region-all'), typeWrap: $('type-wrap'), typeBtn: $('type-btn'), typePanel: $('type-panel'), tyAll: $('ty-all'), fishWrap: $('fish-wrap'), fishBtn: $('fish-btn'), fishPanel: $('fish-panel'), fishAll: $('fish-all'), radiusWrap: $('radius-wrap'), radiusBtn: $('radius-btn'), radiusPanel: $('radius-panel'), mapminWrap: $('mapmin-wrap'), mapminBtn: $('mapmin-btn'), mapminPanel: $('mapmin-panel'), mfDist: $('mf-dist'), search: $('search'), searchSuggest: $('search-suggest'),       lfFav: $('lf-fav'), lfFree: $('lf-free'), lfPaid: $('lf-paid'), lfDist: $('lf-dist'), lfMin: $('lf-min'), lfTypeWrap: $('lf-type-wrap'), lfTypeBtn: $('lf-type-btn'), lfTypePanel: $('lf-type-panel'), lftAll: $('lft-all'), lfFishWrap: $('lf-fish-wrap'), lfFishBtn: $('lf-fish-btn'), lfFishPanel: $('lf-fish-panel'), lffAll: $('lff-all'), lfRegWrap: $('lf-reg-wrap'), lfRegBtn: $('lf-reg-btn'), lfRegPanel: $('lf-reg-panel'), lfRegAll: $('lf-reg-all'),
       methods: $('methods'), methodDetail: $('method-detail'), fishes: $('fishes'),
       weatherWhere: $('weather-where'),
       weatherStatus: $('weather-status'), calendar: $('calendar'), dayDetail: $('day-detail'),
@@ -1835,6 +1992,11 @@
       if (ro) ro.checked = true;
       radiusBtnLabel();
     }
+    var ms = els.mapminPanel;
+    if (ms) {
+      var mo = ms.querySelector('input[value="' + state.mapMin + '"]');
+      if (mo) mo.checked = true;
+    }
     mapminBtnLabel();
     els.search.value = state.q || '';
     els.lfFav.checked = state.list.fav;
@@ -1852,12 +2014,19 @@
     buildGenMarkers();
     setTimeout(function () { buildFisherMarkers(); refreshFmLayer(); }, 120);
     buildActivity();
-    D.spots.forEach(function (s) { s._d = state.origin ? distKm(state.origin.lat, state.origin.lon, s.lat, s.lon) : null; });
-    FISHER.forEach(function (f) { f._d = state.origin ? distKm(state.origin.lat, state.origin.lon, f.lat, f.lon) : null; });
-    refreshMarkers();
-    buildCards();
-    renderCards();
-    renderList();
+    if (state.origin) {
+      buildCards();
+      cardRefs = els.cards.querySelectorAll('.card');
+      setOrigin(state.origin, true);
+    } else {
+      D.spots.forEach(function (s) { s._d = state.origin ? distKm(state.origin.lat, state.origin.lon, s.lat, s.lon) : null; });
+      FISHER.forEach(function (f) { f._d = state.origin ? distKm(state.origin.lat, state.origin.lon, f.lat, f.lon) : null; });
+      refreshMarkers();
+      buildCards();
+      cardRefs = els.cards.querySelectorAll('.card');
+      renderCards();
+      renderList();
+    }
     buildMethods();
     buildFishes();
     renderRulesTab();
@@ -1868,13 +2037,11 @@
         b.addEventListener('click', function () { switchTab(b.dataset.view); });
       })(tabBtns[i]);
     }
-    if (state.origin) setOrigin(state.origin, true);
     switchTab(state.tab);
     layoutFit();
     window.addEventListener('resize', function () {
       requestAnimationFrame(layoutFit);
     });
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(layoutFit);
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(function () {});
   }
 

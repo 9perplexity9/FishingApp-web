@@ -1,7 +1,8 @@
 {
   "name": "Рыбалка Беларусь",
+  "lang": "ru",
   "short_name": "Рыбалка РБ",
-  "description": "385 мест и 4245 отчётов о рыбалке по всей Беларуси",
+  "description": "385 мест и 4244 отчёта о рыбалке по всей Беларуси",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

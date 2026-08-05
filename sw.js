@@ -1,4 +1,4 @@
-const CACHE = 'bel-fish-v44';
+const CACHE = 'bel-fish-v68';
 const PRECACHE = [
   './index.html',
   './app.js',
@@ -8,6 +8,7 @@ const PRECACHE = [
   './data_rules.js',
   './data_depths.js',
   './data_uhamap.js',
+  './data_cities.js',
   './leaflet.js',
   './markercluster.js',
   './leaflet.css',
@@ -79,31 +80,47 @@ self.addEventListener('fetch', e => {
   if (staticFile) {
     e.respondWith(
       caches.match(req).then(hit => {
-        const update = fetch(req).then(res => {
+        if (hit) return hit;
+        return fetch(req).then(res => {
           if (res.ok) {
             const copy = res.clone();
             caches.open(CACHE).then(c => c.put(req, copy));
           }
           return res;
         }).catch(() => Response.error());
-        return hit ? Promise.all([hit, update]).then(a => a[0]) : update;
       })
     );
     return;
   }
 
+  const isMeteo = req.url.includes('api.open-meteo.com');
   if (req.url.includes('api.open-meteo.com') || req.url.includes('nominatim.openstreetmap.org')) {
     e.respondWith(
-      Promise.race([
-        fetch(req),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
-      ]).then(res => {
-        if (res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy));
+      caches.match(req).then(hit => {
+        if (hit && isMeteo) {
+          const cachedAt = Number(hit.headers.get('X-Cached-At') || 0);
+          if (Date.now() - cachedAt < 1800000) return hit;
         }
-        return res;
-      }).catch(() => caches.match(req).then(hit => hit || Response.error()))
+        const ctrl = new AbortController();
+        const to = setTimeout(function () { ctrl.abort(); }, 10000);
+        return fetch(req, { signal: ctrl.signal }).then(function (res) {
+          clearTimeout(to);
+          if (res.ok && isMeteo) {
+            const copy = res.clone();
+            const headers = new Headers(copy.headers);
+            headers.set('X-Cached-At', String(Date.now()));
+            caches.open(CACHE).then(c => c.put(req, new Response(copy.body, {
+              status: copy.status,
+              statusText: copy.statusText,
+              headers: headers
+            })));
+          }
+          return res;
+        }, function () {
+          clearTimeout(to);
+          throw new Error('timeout');
+        }).catch(() => caches.match(req).then(hit => hit || Response.error()));
+      })
     );
     return;
   }
