@@ -508,7 +508,6 @@
   function depthPolys() {
     if (!DP) return;
     D.spots.forEach(function (s) {
-      if (!isVisible(s) || !isMapVisible(s)) return;
       var e = DP[s.name];
       if (!e || !e.features) return;
       e.features.forEach(function (f) {
@@ -527,7 +526,7 @@
 
   function depthPolysSig() {
     var out = [];
-    D.spots.forEach(function (s) { if (isVisible(s) && isMapVisible(s)) out.push(s.id); });
+    D.spots.forEach(function (s) { var e = DP[s.name]; if (e && e.features) out.push(s.id); });
     return out.join(',');
   }
 
