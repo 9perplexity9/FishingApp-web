@@ -25,7 +25,8 @@
     layers: { paid: true, free: true, fav: false, fm: true, depth: false },
     q: '',
     list: { fav: false, free: false, paid: false, min: 0, types: [], fishes: [], regions: [] },
-    useDist: true,
+    listUseDist: true,
+    mapUseDist: true,
     chartKeys: ['bite'],
     legendOpen: false,
     sort: 'score',
@@ -76,7 +77,7 @@
     try {
       localStorage.setItem('rb.state', JSON.stringify({
         tab: state.tab, regions: state.regions, types: state.types, fishes: state.fishes,
-        radius: state.radius, sort: state.sort, q: state.q, list: state.list, useDist: state.useDist,
+        radius: state.radius, sort: state.sort, q: state.q, list: state.list, listUseDist: state.listUseDist, mapUseDist: state.mapUseDist,
         mapMin: state.mapMin, layers: state.layers,
         dayIdx: state.dayIdx, chartKeys: state.chartKeys, legendOpen: state.legendOpen,
         weatherAt: state.weatherAt
@@ -103,7 +104,8 @@
         state.list.regions = Array.isArray(s.list.regions) ? s.list.regions : [];
       }
       if (typeof s.dayIdx === 'number') state.dayIdx = s.dayIdx;
-      if (typeof s.useDist === 'boolean') state.useDist = s.useDist;
+      if (typeof s.useDist === 'boolean') state.listUseDist = s.useDist;
+      if (typeof s.mapUseDist === 'boolean') state.mapUseDist = s.mapUseDist;
       if (Array.isArray(s.chartKeys) && s.chartKeys.length) state.chartKeys = s.chartKeys.filter(function (k) { return ['bite', 'temp', 'precip', 'wind'].indexOf(k) >= 0; });
       state.legendOpen = !!s.legendOpen;
       if (s.layers) {
@@ -158,9 +160,9 @@
     });
   }
 
-  function spotScore(s) {
-    if (state.origin && state.useDist) {
-      var d = distKm(state.origin.lat, state.origin.lon, s.lat, s.lon);
+  function spotScore(s, withDist) {
+    if (state.origin && withDist) {
+      var d = s._d == null ? distKm(state.origin.lat, state.origin.lon, s.lat, s.lon) : s._d;
       s._d = d;
       var distS = 1 - Math.min(d, 80) / 80;
       var spS = Math.min(1, s.fish.length / 3);
@@ -199,7 +201,7 @@
     if (state.list.fav && !state.favs.has(favKey(s))) return false;
     if (state.list.free && s.paid) return false;
     if (state.list.paid && !s.paid) return false;
-    if (state.list.min > 0 && spotScore(s) < state.list.min) return false;
+    if (state.list.min > 0 && spotScore(s, state.listUseDist) < state.list.min) return false;
     if (state.list.types.length && state.list.types.indexOf(s.t) < 0) return false;
     if (state.list.regions.length && state.list.regions.indexOf(s.r) < 0) return false;
     if (state.list.fishes.length && !state.list.fishes.some(function (f) { return s.fish.some(function (sf) { return normFish(sf) === normFish(f); }); })) return false;
@@ -214,7 +216,7 @@
   }
 
   function isMapVisible(s) {
-    if (state.mapMin > 0 && spotScore(s) < state.mapMin) return false;
+    if (state.mapMin > 0 && spotScore(s, state.mapUseDist) < state.mapMin) return false;
     if (state.regions.length && state.regions.indexOf(s.r) < 0) return false;
     return true;
   }
@@ -243,7 +245,7 @@
     try { localStorage.setItem('rb.origin', JSON.stringify(o)); } catch (e) {}
     D.spots.forEach(function (s) { s._d = state.origin ? distKm(state.origin.lat, state.origin.lon, s.lat, s.lon) : null; });
     FISHER.forEach(function (f) { f._d = state.origin ? distKm(state.origin.lat, state.origin.lon, f.lat, f.lon) : null; });
-    D.spots.forEach(function (s) { s._score = spotScore(s); });
+    D.spots.forEach(function (s) { s._score = spotScore(s, state.listUseDist); });
     if (state.origin && state.radius > 0) updateRadius();
     updateOriginMarker();
     refreshMarkers();
@@ -771,7 +773,7 @@
 
   function buildCardHtml(s, i) {
     var d = state.origin ? fmtDist(s._d) : '';
-    var sc = spotScore(s);
+    var sc = spotScore(s, state.listUseDist);
     var fav = state.favs.has(favKey(s));
     var bansNow = RULES ? activeBans(s.r, new Date()) : [];
     var di = depthInfo(s);
@@ -808,7 +810,7 @@
       var card = els.cards.querySelector('.card[data-i="' + i + '"]');
       if (!card) return;
       card.classList.toggle('hide', !isListVisible(s));
-      s._score = spotScore(s);
+      s._score = spotScore(s, state.listUseDist);
       var scEl = card.querySelector('.card-score');
       if (scEl) scEl.innerHTML = s._score + ' <small>из 100</small>';
       var favBtn = card.querySelector('.fav');
@@ -840,7 +842,9 @@
     } else if (state.sort === 'name') {
       arr.sort(function (a, b) { return D.spots[a].name.localeCompare(D.spots[b].name, 'ru'); });
     } else {
-      arr.sort(function (a, b) { return spotScore(D.spots[b]) - spotScore(D.spots[a]); });
+      var sc = {};
+      arr.forEach(function (i) { sc[i] = spotScore(D.spots[i], state.listUseDist); });
+      arr.sort(function (a, b) { return sc[b] - sc[a]; });
     }
     var frag = document.createDocumentFragment();
     arr.forEach(function (i, pos) {
@@ -1570,7 +1574,7 @@
           if (!state.types.length) els.tyAll.checked = true;
         }
     typeBtnLabel();
-        refreshMarkers(); renderCards(); renderList();
+        refreshMarkers();
         saveState();
       });
     });
@@ -1590,7 +1594,7 @@
           if (!state.fishes.length) els.fishAll.checked = true;
         }
         fishBtnLabel();
-        refreshMarkers(); renderCards(); renderList();
+        refreshMarkers(); renderCards();
         saveState();
       });
     });
@@ -1613,9 +1617,9 @@
     els.lfFree.addEventListener('change', function () { state.list.free = els.lfFree.checked; renderCards(); renderList(); saveState(); });
     els.lfPaid.addEventListener('change', function () { state.list.paid = els.lfPaid.checked; renderCards(); renderList(); saveState(); });
     els.lfDist.addEventListener('change', function () {
-      state.useDist = els.lfDist.checked;
-      D.spots.forEach(function (s) { s._score = spotScore(s); });
-      refreshMarkers(); renderCards(); renderList(); saveState();
+      state.listUseDist = els.lfDist.checked;
+      D.spots.forEach(function (s) { s._score = spotScore(s, state.listUseDist); });
+      renderCards(); renderList(); saveState();
     });
     els.lfMin.addEventListener('change', function () { state.list.min = parseInt(els.lfMin.value, 10) || 0; renderCards(); renderList(); saveState(); });
     els.lfTypeBtn.addEventListener('click', function () {
@@ -1707,7 +1711,7 @@
         state.radius = parseInt(cb.value, 10) || 0;
         radiusBtnLabel();
         els.radiusPanel.classList.add('hide');
-        updateRadius(); refreshMarkers(); renderCards(); renderList(); saveState();
+        updateRadius(); refreshMarkers(); saveState();
       });
     });
     els.mapminBtn.addEventListener('click', function () {
@@ -1716,11 +1720,16 @@
     });
     els.mapminPanel.querySelectorAll('input').forEach(function (cb) {
       cb.addEventListener('change', function () {
+        if (cb.id === 'mf-dist') return;
         state.mapMin = parseInt(cb.value, 10) || 0;
         mapminBtnLabel();
         els.mapminPanel.classList.add('hide');
         refreshMarkers(); saveState();
       });
+    });
+    els.mfDist.addEventListener('change', function () {
+      state.mapUseDist = els.mfDist.checked;
+      refreshMarkers(); saveState();
     });
     var t;
     els.search.addEventListener('input', function () {
@@ -1787,7 +1796,7 @@
       tabs: $('tabs'), viewMap: $('view-map'), viewList: $('view-list'), viewTackle: $('view-tackle'), cardsEl: $('cards'), listFilters: $('list-filters'),
       viewFish: $('view-fish'), viewRules: $('view-rules'), viewWeather: $('view-weather'),
       stats: $('stats'), cards: $('cards'), listCount: $('list-count'), sorts: $('sorts'),
-      regionWrap: $('region-wrap'), regionBtn: $('region-btn'), regionPanel: $('region-panel'), regionAll: $('region-all'), typeWrap: $('type-wrap'), typeBtn: $('type-btn'), typePanel: $('type-panel'), tyAll: $('ty-all'), fishWrap: $('fish-wrap'), fishBtn: $('fish-btn'), fishPanel: $('fish-panel'), fishAll: $('fish-all'), radiusWrap: $('radius-wrap'), radiusBtn: $('radius-btn'), radiusPanel: $('radius-panel'), mapminWrap: $('mapmin-wrap'), mapminBtn: $('mapmin-btn'), mapminPanel: $('mapmin-panel'), search: $('search'),       lfFav: $('lf-fav'), lfFree: $('lf-free'), lfPaid: $('lf-paid'), lfDist: $('lf-dist'), lfMin: $('lf-min'), lfTypeWrap: $('lf-type-wrap'), lfTypeBtn: $('lf-type-btn'), lfTypePanel: $('lf-type-panel'), lftAll: $('lft-all'), lfFishWrap: $('lf-fish-wrap'), lfFishBtn: $('lf-fish-btn'), lfFishPanel: $('lf-fish-panel'), lffAll: $('lff-all'), lfRegWrap: $('lf-reg-wrap'), lfRegBtn: $('lf-reg-btn'), lfRegPanel: $('lf-reg-panel'), lfRegAll: $('lf-reg-all'),
+      regionWrap: $('region-wrap'), regionBtn: $('region-btn'), regionPanel: $('region-panel'), regionAll: $('region-all'), typeWrap: $('type-wrap'), typeBtn: $('type-btn'), typePanel: $('type-panel'), tyAll: $('ty-all'), fishWrap: $('fish-wrap'), fishBtn: $('fish-btn'), fishPanel: $('fish-panel'), fishAll: $('fish-all'), radiusWrap: $('radius-wrap'), radiusBtn: $('radius-btn'), radiusPanel: $('radius-panel'), mapminWrap: $('mapmin-wrap'), mapminBtn: $('mapmin-btn'), mapminPanel: $('mapmin-panel'), mfDist: $('mf-dist'), search: $('search'),       lfFav: $('lf-fav'), lfFree: $('lf-free'), lfPaid: $('lf-paid'), lfDist: $('lf-dist'), lfMin: $('lf-min'), lfTypeWrap: $('lf-type-wrap'), lfTypeBtn: $('lf-type-btn'), lfTypePanel: $('lf-type-panel'), lftAll: $('lft-all'), lfFishWrap: $('lf-fish-wrap'), lfFishBtn: $('lf-fish-btn'), lfFishPanel: $('lf-fish-panel'), lffAll: $('lff-all'), lfRegWrap: $('lf-reg-wrap'), lfRegBtn: $('lf-reg-btn'), lfRegPanel: $('lf-reg-panel'), lfRegAll: $('lf-reg-all'),
       methods: $('methods'), methodDetail: $('method-detail'), fishes: $('fishes'),
       weatherWhere: $('weather-where'),
       weatherStatus: $('weather-status'), calendar: $('calendar'), dayDetail: $('day-detail'),
@@ -1831,7 +1840,8 @@
     els.lfFav.checked = state.list.fav;
     els.lfFree.checked = state.list.free;
     els.lfPaid.checked = state.list.paid;
-    els.lfDist.checked = state.useDist;
+    els.lfDist.checked = state.listUseDist;
+    els.mfDist.checked = state.mapUseDist;
     els.lfMin.value = String(state.list.min || 0);
     var sb = els.sorts.querySelectorAll('button');
     for (var sbi = 0; sbi < sb.length; sbi++) sb[sbi].classList.toggle('on', sb[sbi].dataset.sort === state.sort);
